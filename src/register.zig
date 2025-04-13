@@ -119,6 +119,10 @@ pub const RegisterFile = struct {
         self.assign(Register{ .single = r }, @as(u16, val));
     }
 
+    pub fn assign_double(self: *Self, r: PairRegister, val: u16) void {
+        self.assign(Register{ .double = r }, val);
+    }
+
     pub fn assign(self: *Self, r: Register, val: u16) void {
         switch (r) {
             .single => |*reg| self.regs[@intFromEnum(reg.*)] = @truncate(val),
@@ -133,6 +137,10 @@ pub const RegisterFile = struct {
 
     pub fn read_single(self: *Self, r: SingleRegister) u8 {
         return @truncate(self.read(Register{ .single = r }));
+    }
+
+    pub fn read_double(self: *Self, r: PairRegister) u16 {
+        return self.read(Register{ .double = r });
     }
 
     pub fn read(self: *Self, r: Register) u16 {

@@ -24,8 +24,21 @@ pub const Cpu = struct {
         return self.memory.items[idx];
     }
 
+    fn read_memory16(self: *Self, idx: u16) u16 {
+        const low = self.memory.items[idx];
+        const high = self.memory.items[idx + 1];
+        const val = low | @as(u16, high) << 8;
+
+        return val;
+    }
+
     fn write_memory(self: *Self, idx: u16, val: u8) void {
         self.memory.items[idx] = val;
+    }
+
+    fn write_memory16(self: *Self, idx: u16, val: u16) void {
+        self.memory.items[idx] = @truncate(val & 0xf);
+        self.memory.items[idx + 1] = @truncate((val & 0xf0) >> 8);
     }
 
     fn write_memory_hl(self: *Self, val: u8) void {
@@ -446,9 +459,29 @@ pub const Cpu = struct {
         self.registers.assign_single(reg, res);
     }
 
-    pub fn execute_one(self: *Self) !void {
+    fn stack_push(self: *Self, reg: PairRegister) void {
+        const val = self.registers.read_double(reg);
+
+        self.write_memory16(self.registers.sp, val);
+        self.registers.sp += 16;
+    }
+
+    fn stack_pop(self: *Self, reg: PairRegister) void {
+        const val = self.read_memory16(self.registers.sp);
+
+        self.registers.sp -= 16;
+        self.registers.assign_double(reg, val);
+    }
+
+    fn advance_pc(self: *Self) u8 {
         const i = self.read_memory(self.registers.pc);
+
         self.registers.pc += 1;
+        return i;
+    }
+
+    pub fn execute_one(self: *Self) !void {
+        const i = self.advance_pc();
 
         switch (i) {
             // Add instructions
@@ -568,9 +601,8 @@ pub const Cpu = struct {
 
             // Swap nibble
             0xCB => |_| {
-                const next = self.read_memory(self.registers.pc);
+                const next = self.advance_pc();
 
-                self.registers.pc += 1;
                 switch (next) {
                     0x37 => |_| self.alu_swap_nibble_reg(SingleRegister.A),
                     0x30 => |_| self.alu_swap_nibble_reg(SingleRegister.B),
@@ -681,14 +713,231 @@ pub const Cpu = struct {
 
             // Nop
             0x00 => {},
+            // Halt
             0x76 => @panic("HALT"),
 
+            // RLCA
             0x07 => self.alu_rlc_reg(SingleRegister.A),
+            // RLA
             0x17 => self.alu_rl_reg(SingleRegister.A),
-
+            // RRCA
             0x0F => self.alu_rrc_reg(SingleRegister.A),
+            // RRA
             0x1F => self.alu_rr_reg(SingleRegister.A),
+            // LD imm8
+            0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E => {
+                const imm = self.advance_pc();
 
+                switch (i) {
+                    0x06 => self.registers.assign_single(SingleRegister.B, imm),
+                    0x0E => self.registers.assign_single(SingleRegister.C, imm),
+                    0x16 => self.registers.assign_single(SingleRegister.D, imm),
+                    0x1E => self.registers.assign_single(SingleRegister.E, imm),
+                    0x26 => self.registers.assign_single(SingleRegister.H, imm),
+                    0x2E => self.registers.assign_single(SingleRegister.L, imm),
+                    else => @panic("Unknown opcode"),
+                }
+            },
+            // LR reg,reg
+            0x7F => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.A)),
+            0x78 => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.B)),
+            0x79 => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.C)),
+            0x7A => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.D)),
+            0x7B => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.E)),
+            0x7C => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.H)),
+            0x7D => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.L)),
+            0x7E => self.registers.assign_single(SingleRegister.A, self.read_memory_hl()),
+            0x40 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.B)),
+            0x41 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.C)),
+            0x42 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.D)),
+            0x43 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.E)),
+            0x44 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.H)),
+            0x45 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.L)),
+            0x46 => self.registers.assign_single(SingleRegister.B, self.read_memory_hl()),
+            0x48 => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.B)),
+            0x49 => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.C)),
+            0x4A => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.D)),
+            0x4B => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.E)),
+            0x4C => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.H)),
+            0x4D => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.L)),
+            0x4E => self.registers.assign_single(SingleRegister.C, self.read_memory_hl()),
+            0x50 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.B)),
+            0x51 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.C)),
+            0x52 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.D)),
+            0x53 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.E)),
+            0x54 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.H)),
+            0x55 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.L)),
+            0x56 => self.registers.assign_single(SingleRegister.D, self.read_memory_hl()),
+            0x58 => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.B)),
+            0x59 => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.C)),
+            0x5A => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.D)),
+            0x5B => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.E)),
+            0x5C => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.H)),
+            0x5D => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.L)),
+            0x5E => self.registers.assign_single(SingleRegister.E, self.read_memory_hl()),
+            0x60 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.B)),
+            0x61 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.C)),
+            0x62 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.D)),
+            0x63 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.E)),
+            0x64 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.H)),
+            0x65 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.L)),
+            0x66 => self.registers.assign_single(SingleRegister.H, self.read_memory_hl()),
+            0x68 => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.B)),
+            0x69 => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.C)),
+            0x6A => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.D)),
+            0x6B => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.E)),
+            0x6C => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.H)),
+            0x6D => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.L)),
+            0x6E => self.registers.assign_single(SingleRegister.L, self.read_memory_hl()),
+            0x70 => self.write_memory_hl(self.registers.read_single(SingleRegister.B)),
+            0x71 => self.write_memory_hl(self.registers.read_single(SingleRegister.C)),
+            0x72 => self.write_memory_hl(self.registers.read_single(SingleRegister.D)),
+            0x73 => self.write_memory_hl(self.registers.read_single(SingleRegister.E)),
+            0x74 => self.write_memory_hl(self.registers.read_single(SingleRegister.H)),
+            0x75 => self.write_memory_hl(self.registers.read_single(SingleRegister.L)),
+            0x36 => {
+                const imm = self.read_memory(self.registers.pc);
+                self.registers.pc += 1;
+
+                self.write_memory_hl(imm);
+            },
+
+            // LD A, n
+            0x0A => {
+                self.registers.assign_single(SingleRegister.A, self.read_memory(self.registers.read_double(PairRegister.BC)));
+            },
+            0x1A => {
+                self.registers.assign_single(SingleRegister.A, self.read_memory(self.registers.read_double(PairRegister.DE)));
+            },
+            0xFA => {
+                self.registers.assign_single(SingleRegister.A, self.read_memory(self.registers.read_double(PairRegister.DE)));
+            },
+            0x3E => {
+                const imm = self.advance_pc();
+
+                self.registers.assign_single(SingleRegister.A, imm);
+            },
+            0x02 => {
+                const val = self.registers.read_double(PairRegister.BC);
+                self.write_memory(val, self.registers.read_single(SingleRegister.A));
+            },
+            0x12 => {
+                const val = self.registers.read_double(PairRegister.DE);
+                self.write_memory(val, self.registers.read_single(SingleRegister.A));
+            },
+            0x77 => {
+                const val = self.registers.read_double(PairRegister.HL);
+                self.write_memory(val, self.registers.read_single(SingleRegister.A));
+            },
+            0xEA => {
+                const val = self.advance_pc();
+
+                self.write_memory(val, self.registers.read_single(SingleRegister.A));
+            },
+            0xF2 => {
+                const c = self.registers.read_single(SingleRegister.C);
+                const val = self.read_memory(@as(u16, c) + 0xFF00);
+
+                self.registers.assign_single(SingleRegister.A, val);
+            },
+            0xE2 => {
+                const c = self.registers.read_single(SingleRegister.C);
+
+                self.write_memory(0xFF00 + @as(u16, c), self.registers.read_single(SingleRegister.A));
+            },
+            0x3A => {
+                const c = self.read_memory_hl();
+
+                self.alu_dec16(PairRegister.HL);
+                self.registers.assign_single(SingleRegister.A, c);
+            },
+            0x32 => {
+                const a = self.registers.read_single(SingleRegister.A);
+
+                self.write_memory_hl(a);
+                self.alu_dec16(PairRegister.HL);
+            },
+            0x2A => {
+                const c = self.read_memory_hl();
+
+                self.alu_inc16(PairRegister.HL);
+                self.registers.assign_single(SingleRegister.A, c);
+            },
+            0x22 => {
+                const a = self.registers.read_single(SingleRegister.A);
+
+                self.write_memory_hl(a);
+                self.alu_inc16(PairRegister.HL);
+            },
+            0xE0 => {
+                const a = self.registers.read_single(SingleRegister.A);
+                const nn = self.advance_pc();
+
+                self.write_memory(0xFF00 + @as(u16, nn), a);
+            },
+            0xF0 => {
+                const nn = self.advance_pc();
+                const val = self.read_memory(0xFF00 + @as(u16, nn));
+
+                self.registers.assign_single(SingleRegister.A, val);
+            },
+            0x01 => {
+                const low = self.advance_pc();
+                const high = self.advance_pc();
+                const val = low | @as(u16, high) << 8;
+
+                self.registers.assign_double(PairRegister.BC, val);
+            },
+            0x11 => {
+                const low = self.advance_pc();
+                const high = self.advance_pc();
+                const val = low | @as(u16, high) << 8;
+
+                self.registers.assign_double(PairRegister.DE, val);
+            },
+            0x21 => {
+                const low = self.advance_pc();
+                const high = self.advance_pc();
+                const val = low | @as(u16, high) << 8;
+
+                self.registers.assign_double(PairRegister.HL, val);
+            },
+            0x31 => {
+                const low = self.advance_pc();
+                const high = self.advance_pc();
+                const val = low | @as(u16, high) << 8;
+
+                self.registers.sp = val;
+            },
+            0xF9 => {
+                self.registers.sp = self.registers.read_double(PairRegister.HL);
+            },
+            0xF8 => {
+                const n = self.advance_pc();
+                const sp = self.registers.sp;
+                const res = self.alu_add16(@as(u16, n), sp);
+
+                self.registers.assign_double(PairRegister.HL, res);
+            },
+            0x08 => {
+                const low = self.advance_pc();
+                const high = self.advance_pc();
+                const val = low | @as(u16, high) << 8;
+
+                self.write_memory16(val, self.registers.sp);
+            },
+
+            // Push
+            0xF5 => self.stack_push(PairRegister.AF),
+            0xC5 => self.stack_push(PairRegister.BC),
+            0xD5 => self.stack_push(PairRegister.DE),
+            0xE5 => self.stack_push(PairRegister.HL),
+
+            // Pop
+            0xF1 => self.stack_pop(PairRegister.AF),
+            0xC1 => self.stack_pop(PairRegister.BC),
+            0xD1 => self.stack_pop(PairRegister.DE),
+            0xE1 => self.stack_pop(PairRegister.HL),
             else => @panic("Unknown opcode"),
         }
     }

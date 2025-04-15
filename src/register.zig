@@ -2,11 +2,10 @@ const std = @import("std");
 
 const NUM_REGS = 8;
 
-const FlagIndex = 8;
+const FlagIndex = 1;
 
 pub const SingleRegister = enum(u8) {
     A = 0,
-    F = 1,
     B = 2,
     C = 3,
     D = 4,
@@ -90,13 +89,15 @@ pub const FlagRegister = packed struct {
     }
 
     pub fn dump_state(self: *const Self, writer: anytype) void {
-        writer.print("Flags (C/HC/S/Z) {{ {}, {}, {}, {} }}\n", .{ self.carry, self.half_carry, self.sub, self.zero });
+        _ = self;
+        _ = writer;
+        // writer.print("Registers {{ a: {x} f: {x}, b: {x}, c: {x}, d: {x}, e: {x}, h: {x}, l: {x}, pc: {x}, sp: {x} }}\n", .{ });
+        // writer.print("Flags {{ {}, {}, {}, {} }}\n", .{ self.carry, self.half_carry, self.sub, self.zero });
     }
 };
 
 pub const RegisterFile = struct {
     regs: [NUM_REGS]u8,
-    flags: FlagRegister,
     pc: u16,
     sp: u16,
 
@@ -104,15 +105,10 @@ pub const RegisterFile = struct {
 
     pub fn default() Self {
         return Self{
-            .regs = [_]u8{0} ** (NUM_REGS),
-            .flags = FlagRegister.default(),
+            .regs = [_]u8{ 0x11, @bitCast(FlagRegister.default().set_zero(1)), 0x0, 0x0, 0xFF, 0x56, 0x00, 0xD },
             .pc = 0x100,
-            .sp = 0,
+            .sp = 0xFFFE,
         };
-    }
-
-    pub fn update_flags(self: *Self, flags: FlagRegister) void {
-        self.flags = @bitCast(flags);
     }
 
     pub fn assign_single(self: *Self, r: SingleRegister, val: u8) void {
@@ -129,8 +125,8 @@ pub const RegisterFile = struct {
             .double => |*reg| {
                 const first = @intFromEnum(reg.*);
 
-                self.regs[first] = @truncate(val);
-                self.regs[first + 1] = @truncate(val >> 8);
+                self.regs[first] = @truncate(val >> 8);
+                self.regs[first + 1] = @truncate(val);
             },
         }
     }
@@ -149,19 +145,35 @@ pub const RegisterFile = struct {
             .double => |*reg| {
                 const first = @intFromEnum(reg.*);
 
-                return @as(u16, self.regs[first]) | @as(u16, self.regs[first + 1]) << 8;
+                return @as(u16, self.regs[first + 1]) | (@as(u16, self.regs[first]) << 8);
             },
         }
     }
 
+    pub fn update_flags(self: *Self, flags: FlagRegister) void {
+        self.regs[FlagIndex] = @bitCast(flags);
+    }
+
     pub fn read_flags(self: *Self) FlagRegister {
-        return self.flags;
+        return @bitCast(self.regs[FlagIndex]);
     }
 
     pub fn dump_state(self: *Self, writer: anytype) void {
-        writer.print("PC: 0x{x} SP: 0x{x}\n", .{ self.pc, self.sp });
-        writer.print("Registers (A/F/B/C/D/E/H/L) {x}\n", .{self.regs});
-        self.flags.dump_state(writer);
+        writer.print("Registers {{ a: {x}, f: {x}, b: {x}, c: {x}, d: {x}, e: {x}, h: {x}, l: {x}, pc: {x}, sp: {x} }}\n", .{
+            self.regs[0],
+            self.regs[1],
+            self.regs[2],
+            self.regs[3],
+            self.regs[4],
+            self.regs[5],
+            self.regs[6],
+            self.regs[7],
+            self.pc,
+            self.sp,
+        });
+        // writer.print("PC: 0x{x} SP: 0x{x}\n", .{ self.pc, self.sp });
+        // writer.print("Registers (A/F/B/C/D/E/H/L) {x}\n", .{self.regs});
+        // self.read_flags().dump_state(writer);
     }
 };
 
@@ -169,12 +181,14 @@ test "Test register API" {
     const expectEqual = std.testing.expectEqual;
 
     var regs = RegisterFile.default();
-    const af = Register{ .double = PairRegister.AF };
+    const af = Register{ .double = PairRegister.BC };
+
+    regs.regs = [_]u8{0} ** (NUM_REGS);
 
     regs.assign(af, 1 | (2 << 8));
 
     try expectEqual(regs.regs[0], 1);
     try expectEqual(regs.regs[1], 2);
-    try expectEqual(regs.read_single(SingleRegister.A), 1);
-    try expectEqual(regs.read_single(SingleRegister.F), 2);
+    try expectEqual(regs.read_single(SingleRegister.B), 1);
+    try expectEqual(regs.read_single(SingleRegister.C), 2);
 }

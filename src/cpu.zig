@@ -6,49 +6,29 @@ const PairRegister = @import("register.zig").PairRegister;
 const FlagRegister = @import("register.zig").FlagRegister;
 const std = @import("std");
 const ArrayList = std.ArrayList;
+const Memory = @import("memory.zig").Memory;
 
 pub const Cpu = struct {
     registers: RegisterFile,
-    memory: ArrayList(u8),
+    memory: Memory,
 
     const Self = @This();
 
-    pub fn default(memory: ArrayList(u8)) Self {
-        return Cpu{
+    pub fn default(rom: []u8) Self {
+        return Self{
             .registers = RegisterFile.default(),
-            .memory = memory,
+            .memory = Memory.new(rom),
         };
-    }
-
-    fn read_memory(self: *Self, idx: u16) u8 {
-        return self.memory.items[idx];
-    }
-
-    fn read_memory16(self: *Self, idx: u16) u16 {
-        const low = self.memory.items[idx];
-        const high = self.memory.items[idx + 1];
-        const val = low | @as(u16, high) << 8;
-
-        return val;
-    }
-
-    fn write_memory(self: *Self, idx: u16, val: u8) void {
-        self.memory.items[idx] = val;
-    }
-
-    fn write_memory16(self: *Self, idx: u16, val: u16) void {
-        self.memory.items[idx] = @truncate(val & 0xf);
-        self.memory.items[idx + 1] = @truncate((val & 0xf0) >> 8);
     }
 
     fn write_memory_hl(self: *Self, val: u8) void {
         const hl = self.registers.read(Register{ .double = PairRegister.HL });
-        self.write_memory(hl, val);
+        self.memory.write_u8(hl, val);
     }
 
     fn read_memory_hl(self: *Self) u8 {
         const hl = self.registers.read(Register{ .double = PairRegister.HL });
-        return self.read_memory(hl);
+        return self.memory.read_u8(hl);
     }
 
     fn alu_add16(self: *Self, val1: u16, val: u16) u16 {
@@ -329,9 +309,10 @@ pub const Cpu = struct {
     fn alu_rl(self: *Self, v: u8) u8 {
         var val = v;
         const carry = (val & (1 << 7)) != 0;
+        const f_carry = self.registers.read_flags().carry;
 
         val <<= 1;
-        val |= self.registers.flags.carry;
+        val |= f_carry;
 
         const flags = FlagRegister
             .default()
@@ -375,9 +356,10 @@ pub const Cpu = struct {
     fn alu_rr(self: *Self, v: u8) u8 {
         var val = v;
         const carry = (val & 0x1) != 0;
+        const f_carry = self.registers.read_flags().carry;
 
         val >>= 1;
-        val |= @as(u8, self.registers.flags.carry) << 7;
+        val |= @as(u8, f_carry) << 7;
 
         const flags = FlagRegister
             .default()
@@ -459,30 +441,49 @@ pub const Cpu = struct {
         self.registers.assign_single(reg, res);
     }
 
-    fn stack_push(self: *Self, reg: PairRegister) void {
-        const val = self.registers.read_double(reg);
-
-        self.write_memory16(self.registers.sp, val);
+    fn stack_push(self: *Self, val: u16) void {
+        self.memory.write_u16(self.registers.sp, val);
         self.registers.sp += 16;
     }
 
-    fn stack_pop(self: *Self, reg: PairRegister) void {
-        const val = self.read_memory16(self.registers.sp);
+    fn stack_pop(self: *Self) u16 {
+        const val = self.memory.read_u16(self.registers.sp);
 
         self.registers.sp -= 16;
-        self.registers.assign_double(reg, val);
+        return val;
     }
 
     fn advance_pc(self: *Self) u8 {
-        const i = self.read_memory(self.registers.pc);
+        const i = self.memory.read_u8(self.registers.pc);
 
         self.registers.pc += 1;
         return i;
     }
 
+    fn advance_pc16(self: *Self) u16 {
+        const low = self.advance_pc();
+        const high = self.advance_pc();
+        const val = low | @as(u16, high) << 8;
+
+        return val;
+    }
+
+    fn ret(self: *Self) void {
+        const lr = self.stack_pop();
+
+        self.registers.pc = lr;
+    }
+
+    pub fn execute(self: *Self) !void {
+        while (true) {
+            try self.execute_one();
+        }
+    }
+
     pub fn execute_one(self: *Self) !void {
         const i = self.advance_pc();
 
+        std.debug.print("Executing {x}\n", .{i});
         switch (i) {
             // Add instructions
             0x87 => |_| self.alu_add(self.registers.read_single(SingleRegister.A)),
@@ -581,7 +582,7 @@ pub const Cpu = struct {
 
             // Add to SP
             0xE8 => |_| {
-                const imm = self.read_memory(self.registers.pc);
+                const imm = self.memory.read_u8(self.registers.pc);
 
                 self.registers.sp = self.alu_add16(self.registers.sp, imm);
                 self.registers.pc += 1;
@@ -708,8 +709,18 @@ pub const Cpu = struct {
             },
             0x27 => self.alu_daa(),
             0x2F => self.alu_cpl(),
-            0x3F => self.registers.flags.carry ^= 1,
-            0x37 => self.registers.flags.carry = 1,
+            0x3F => {
+                var flags = self.registers.read_flags();
+
+                flags.carry ^= 1;
+                self.registers.update_flags(flags);
+            },
+            0x37 => {
+                var flags = self.registers.read_flags();
+
+                flags.carry = 1;
+                self.registers.update_flags(flags);
+            },
 
             // Nop
             0x00 => {},
@@ -754,6 +765,7 @@ pub const Cpu = struct {
             0x44 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.H)),
             0x45 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.L)),
             0x46 => self.registers.assign_single(SingleRegister.B, self.read_memory_hl()),
+            0x47 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.A)),
             0x48 => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.B)),
             0x49 => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.C)),
             0x4A => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.D)),
@@ -796,7 +808,7 @@ pub const Cpu = struct {
             0x74 => self.write_memory_hl(self.registers.read_single(SingleRegister.H)),
             0x75 => self.write_memory_hl(self.registers.read_single(SingleRegister.L)),
             0x36 => {
-                const imm = self.read_memory(self.registers.pc);
+                const imm = self.memory.read_u8(self.registers.pc);
                 self.registers.pc += 1;
 
                 self.write_memory_hl(imm);
@@ -804,13 +816,13 @@ pub const Cpu = struct {
 
             // LD A, n
             0x0A => {
-                self.registers.assign_single(SingleRegister.A, self.read_memory(self.registers.read_double(PairRegister.BC)));
+                self.registers.assign_single(SingleRegister.A, self.memory.read_u8(self.registers.read_double(PairRegister.BC)));
             },
             0x1A => {
-                self.registers.assign_single(SingleRegister.A, self.read_memory(self.registers.read_double(PairRegister.DE)));
+                self.registers.assign_single(SingleRegister.A, self.memory.read_u8(self.registers.read_double(PairRegister.DE)));
             },
             0xFA => {
-                self.registers.assign_single(SingleRegister.A, self.read_memory(self.registers.read_double(PairRegister.DE)));
+                self.registers.assign_single(SingleRegister.A, self.memory.read_u8(self.registers.read_double(PairRegister.DE)));
             },
             0x3E => {
                 const imm = self.advance_pc();
@@ -819,31 +831,32 @@ pub const Cpu = struct {
             },
             0x02 => {
                 const val = self.registers.read_double(PairRegister.BC);
-                self.write_memory(val, self.registers.read_single(SingleRegister.A));
+                self.memory.write_u8(val, self.registers.read_single(SingleRegister.A));
             },
             0x12 => {
                 const val = self.registers.read_double(PairRegister.DE);
-                self.write_memory(val, self.registers.read_single(SingleRegister.A));
+
+                self.memory.write_u8(val, self.registers.read_single(SingleRegister.A));
             },
             0x77 => {
                 const val = self.registers.read_double(PairRegister.HL);
-                self.write_memory(val, self.registers.read_single(SingleRegister.A));
+                self.memory.write_u8(val, self.registers.read_single(SingleRegister.A));
             },
             0xEA => {
                 const val = self.advance_pc();
 
-                self.write_memory(val, self.registers.read_single(SingleRegister.A));
+                self.memory.write_u8(val, self.registers.read_single(SingleRegister.A));
             },
             0xF2 => {
                 const c = self.registers.read_single(SingleRegister.C);
-                const val = self.read_memory(@as(u16, c) + 0xFF00);
+                const val = self.memory.read_u8(@as(u16, c) + 0xFF00);
 
                 self.registers.assign_single(SingleRegister.A, val);
             },
             0xE2 => {
                 const c = self.registers.read_single(SingleRegister.C);
 
-                self.write_memory(0xFF00 + @as(u16, c), self.registers.read_single(SingleRegister.A));
+                self.memory.write_u8(0xFF00 + @as(u16, c), self.registers.read_single(SingleRegister.A));
             },
             0x3A => {
                 const c = self.read_memory_hl();
@@ -873,39 +886,31 @@ pub const Cpu = struct {
                 const a = self.registers.read_single(SingleRegister.A);
                 const nn = self.advance_pc();
 
-                self.write_memory(0xFF00 + @as(u16, nn), a);
+                self.memory.write_u8(0xFF00 + @as(u16, nn), a);
             },
             0xF0 => {
                 const nn = self.advance_pc();
-                const val = self.read_memory(0xFF00 + @as(u16, nn));
+                const val = self.memory.read_u8(0xFF00 + @as(u16, nn));
 
                 self.registers.assign_single(SingleRegister.A, val);
             },
             0x01 => {
-                const low = self.advance_pc();
-                const high = self.advance_pc();
-                const val = low | @as(u16, high) << 8;
+                const val = self.advance_pc16();
 
                 self.registers.assign_double(PairRegister.BC, val);
             },
             0x11 => {
-                const low = self.advance_pc();
-                const high = self.advance_pc();
-                const val = low | @as(u16, high) << 8;
+                const val = self.advance_pc16();
 
                 self.registers.assign_double(PairRegister.DE, val);
             },
             0x21 => {
-                const low = self.advance_pc();
-                const high = self.advance_pc();
-                const val = low | @as(u16, high) << 8;
+                const val = self.advance_pc16();
 
                 self.registers.assign_double(PairRegister.HL, val);
             },
             0x31 => {
-                const low = self.advance_pc();
-                const high = self.advance_pc();
-                const val = low | @as(u16, high) << 8;
+                const val = self.advance_pc16();
 
                 self.registers.sp = val;
             },
@@ -920,26 +925,113 @@ pub const Cpu = struct {
                 self.registers.assign_double(PairRegister.HL, res);
             },
             0x08 => {
-                const low = self.advance_pc();
-                const high = self.advance_pc();
-                const val = low | @as(u16, high) << 8;
+                const val = self.advance_pc16();
 
-                self.write_memory16(val, self.registers.sp);
+                self.memory.write_u16(val, self.registers.sp);
             },
 
             // Push
-            0xF5 => self.stack_push(PairRegister.AF),
-            0xC5 => self.stack_push(PairRegister.BC),
-            0xD5 => self.stack_push(PairRegister.DE),
-            0xE5 => self.stack_push(PairRegister.HL),
+            0xF5 => self.stack_push(self.registers.read_double(PairRegister.AF)),
+            0xC5 => self.stack_push(self.registers.read_double(PairRegister.BC)),
+            0xD5 => self.stack_push(self.registers.read_double(PairRegister.DE)),
+            0xE5 => self.stack_push(self.registers.read_double(PairRegister.HL)),
 
             // Pop
-            0xF1 => self.stack_pop(PairRegister.AF),
-            0xC1 => self.stack_pop(PairRegister.BC),
-            0xD1 => self.stack_pop(PairRegister.DE),
-            0xE1 => self.stack_pop(PairRegister.HL),
-            else => @panic("Unknown opcode"),
+            0xF1 => self.registers.assign_double(PairRegister.AF, self.stack_pop()),
+            0xC1 => self.registers.assign_double(PairRegister.BC, self.stack_pop()),
+            0xD1 => self.registers.assign_double(PairRegister.DE, self.stack_pop()),
+            0xE1 => self.registers.assign_double(PairRegister.HL, self.stack_pop()),
+
+            // Jump
+            0xC3 => {
+                const val = self.advance_pc16();
+
+                self.registers.pc = val;
+            },
+
+            // JR
+            0x18 => {
+                const offset: i8 = @bitCast(self.advance_pc());
+                self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(offset))));
+            },
+
+            // JR NZ
+            0x20 => {
+                const zero = self.registers.read_flags().zero;
+                const offset: i8 = @bitCast(self.advance_pc());
+
+                if (zero == 0)
+                    self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(offset))));
+            },
+            // JR Z
+            0x28 => {
+                const zero = self.registers.read_flags().zero;
+                const offset: i8 = @bitCast(self.advance_pc());
+
+                if (zero == 1)
+                    self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(offset))));
+            },
+            // JR NC
+            0x30 => {
+                const carry = self.registers.read_flags().carry;
+                const offset: i8 = @bitCast(self.advance_pc());
+
+                if (carry == 0)
+                    self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(offset))));
+            },
+            // JR C
+            0x38 => {
+                const carry = self.registers.read_flags().carry;
+                const offset: i8 = @bitCast(self.advance_pc());
+
+                if (carry == 1)
+                    self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(offset))));
+            },
+
+            // DI
+            0xF3 => {},
+
+            // Ret
+            0xC9 => self.ret(),
+            0xC0 => {
+                const zero = self.registers.read_flags().zero;
+
+                if (zero == 0)
+                    self.ret();
+            },
+            0xC8 => {
+                const zero = self.registers.read_flags().zero;
+
+                if (zero == 1)
+                    self.ret();
+            },
+            0xD0 => {
+                const carry = self.registers.read_flags().carry;
+
+                if (carry == 0)
+                    self.ret();
+            },
+            0xD8 => {
+                const carry = self.registers.read_flags().carry;
+
+                if (carry == 1)
+                    self.ret();
+            },
+
+            // CALL
+            0xCD => {
+                const val = self.advance_pc16();
+
+                self.stack_push(self.registers.pc);
+                self.registers.pc = val;
+            },
+            else => {
+                std.debug.print("Unknown opcode {x}\n", .{i});
+                @panic("");
+            },
         }
+
+        self.dump_state(std.debug);
     }
 
     pub fn dump_state(self: *Self, writer: anytype) void {
@@ -958,10 +1050,11 @@ test "Test execute add" {
 
     try memory.appendSlice(&[_]u8{ 0x80, 0x80, 0x80, 0x80 });
 
-    var cpu = Cpu.default(memory);
+    var cpu = Cpu.default(memory.items);
 
     // For testing purpose
     cpu.registers.pc = 0;
+    cpu.registers.regs = [_]u8{0} ** (8);
 
     cpu.registers.assign_single(b, 1);
 
@@ -986,8 +1079,6 @@ test "Test execute add" {
     try cpu.execute_one();
     try expectEqual(cpu.registers.read_single(a), (143 + 145) & 0xff);
     try expectEqual(0b110000, @as(u8, @bitCast(cpu.registers.read_flags())));
-
-    cpu.dump_state(std.debug);
 }
 
 test "Test and" {
@@ -1002,9 +1093,11 @@ test "Test and" {
     const b = SingleRegister.B;
     const a = SingleRegister.A;
 
-    var cpu = Cpu.default(memory);
+    var cpu = Cpu.default(memory.items);
+
     // For testing purpose
     cpu.registers.pc = 0;
+    cpu.registers.regs = [_]u8{0} ** (8);
 
     cpu.registers.assign_single(b, 1);
     try cpu.execute_one();
@@ -1012,4 +1105,22 @@ test "Test and" {
     // Manual say that half carry should be set
     try expectEqual(0b10100000, @as(u8, @bitCast(cpu.registers.read_flags())));
     try expectEqual(cpu.registers.read_single(a), 0);
+}
+
+test "Test 03-op" {
+    const expect = std.testing.expect;
+    //  Get an allocator
+    const allocator = std.testing.allocator;
+
+    var file = try std.fs.cwd().openFile("test-roms/cpu_instrs/individual/03-op sp,hl.gb", .{});
+    defer file.close();
+
+    const code = try file.readToEndAlloc(allocator, 35000);
+    defer allocator.free(code);
+
+    std.debug.print("LEN {d}\n", .{code.len});
+    try expect(code.len != 0);
+
+    var cpu = Cpu.default(code);
+    try cpu.execute();
 }

@@ -159,7 +159,7 @@ pub const Cpu = struct {
         const new_flags = FlagRegister
             .default()
             .set_zero(@intFromBool(res == 0))
-            .set_half_curry(@intFromBool(val == 0xf));
+            .set_half_curry(@intFromBool((val & 0xf) + 1 > 0xf));
 
         self.registers.update_flags(new_flags);
         return res;
@@ -185,7 +185,8 @@ pub const Cpu = struct {
         const new_flags = FlagRegister
             .default()
             .set_zero(@intFromBool(res == 0))
-            .set_half_curry(@intFromBool(val == 0x10));
+            .set_sub(1)
+            .set_half_curry(@intFromBool((val & 0xF) == 0x0));
 
         self.registers.update_flags(new_flags);
         return res;
@@ -441,15 +442,28 @@ pub const Cpu = struct {
         self.registers.assign_single(reg, res);
     }
 
+    fn alu_cp(self: *Self, val: u8) void {
+        const a = self.registers.read_single(SingleRegister.A);
+
+        const flags = FlagRegister
+            .default()
+            .set_zero(@intFromBool(val == a))
+            .set_sub(1)
+            .set_carry(@intFromBool(a < val))
+            .set_half_curry(@intFromBool((a & 0xF) < (val & 0xF)));
+
+        self.registers.update_flags(flags);
+    }
+
     fn stack_push(self: *Self, val: u16) void {
+        self.registers.sp -= 2;
         self.memory.write_u16(self.registers.sp, val);
-        self.registers.sp += 16;
     }
 
     fn stack_pop(self: *Self) u16 {
         const val = self.memory.read_u16(self.registers.sp);
 
-        self.registers.sp -= 16;
+        self.registers.sp += 2;
         return val;
     }
 
@@ -474,6 +488,13 @@ pub const Cpu = struct {
         self.registers.pc = lr;
     }
 
+    fn call(self: *Self) void {
+        const val = self.advance_pc16();
+
+        self.stack_push(self.registers.pc);
+        self.registers.pc = val;
+    }
+
     pub fn execute(self: *Self) !void {
         while (true) {
             try self.execute_one();
@@ -483,7 +504,7 @@ pub const Cpu = struct {
     pub fn execute_one(self: *Self) !void {
         const i = self.advance_pc();
 
-        std.debug.print("Executing {x}\n", .{i});
+        std.debug.print("Executing {x}", .{i});
         switch (i) {
             // Add instructions
             0x87 => |_| self.alu_add(self.registers.read_single(SingleRegister.A)),
@@ -494,6 +515,7 @@ pub const Cpu = struct {
             0x84 => |_| self.alu_add(self.registers.read_single(SingleRegister.H)),
             0x85 => |_| self.alu_add(self.registers.read_single(SingleRegister.L)),
             0x86 => |_| self.alu_add(self.read_memory_hl()),
+            0xC6 => |_| self.alu_add(self.advance_pc()),
 
             // Adc instructions
             0x8f => |_| self.alu_addc(self.registers.read_single(SingleRegister.A)),
@@ -514,6 +536,7 @@ pub const Cpu = struct {
             0x94 => |_| self.alu_sub(self.registers.read_single(SingleRegister.H)),
             0x95 => |_| self.alu_sub(self.registers.read_single(SingleRegister.L)),
             0x96 => |_| self.alu_sub(self.read_memory_hl()),
+            0xD6 => |_| self.alu_sub(self.advance_pc()),
 
             // Subc instructions
             0x9F => |_| self.alu_subc(self.registers.read_single(SingleRegister.A)),
@@ -534,6 +557,7 @@ pub const Cpu = struct {
             0xA4 => |_| self.alu_and(self.registers.read_single(SingleRegister.H)),
             0xA5 => |_| self.alu_and(self.registers.read_single(SingleRegister.L)),
             0xA6 => |_| self.alu_and(self.read_memory_hl()),
+            0xE6 => |_| self.alu_and(self.advance_pc()),
 
             // Or instructions
             0xB7 => |_| self.alu_or(self.registers.read_single(SingleRegister.A)),
@@ -554,6 +578,7 @@ pub const Cpu = struct {
             0xAC => |_| self.alu_xor(self.registers.read_single(SingleRegister.H)),
             0xAD => |_| self.alu_xor(self.registers.read_single(SingleRegister.L)),
             0xAE => |_| self.alu_xor(self.read_memory_hl()),
+            0xEE => |_| self.alu_xor(self.advance_pc()),
 
             // Inc instructions
             0x3C => |_| self.alu_inc_reg(SingleRegister.A),
@@ -604,6 +629,7 @@ pub const Cpu = struct {
             0xCB => |_| {
                 const next = self.advance_pc();
 
+                std.debug.print(" {x}", .{next});
                 switch (next) {
                     0x37 => |_| self.alu_swap_nibble_reg(SingleRegister.A),
                     0x30 => |_| self.alu_swap_nibble_reg(SingleRegister.B),
@@ -704,7 +730,10 @@ pub const Cpu = struct {
 
                         self.write_memory_hl(res);
                     },
-                    else => @panic("Unknown opcode"),
+                    else => {
+                        std.debug.print("{x}\n", .{next});
+                        @panic("Unknown opcode");
+                    },
                 }
             },
             0x27 => self.alu_daa(),
@@ -758,6 +787,7 @@ pub const Cpu = struct {
             0x7C => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.H)),
             0x7D => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.L)),
             0x7E => self.registers.assign_single(SingleRegister.A, self.read_memory_hl()),
+            0x47 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.A)),
             0x40 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.B)),
             0x41 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.C)),
             0x42 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.D)),
@@ -765,7 +795,7 @@ pub const Cpu = struct {
             0x44 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.H)),
             0x45 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.L)),
             0x46 => self.registers.assign_single(SingleRegister.B, self.read_memory_hl()),
-            0x47 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.A)),
+            0x4F => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.A)),
             0x48 => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.B)),
             0x49 => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.C)),
             0x4A => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.D)),
@@ -773,6 +803,7 @@ pub const Cpu = struct {
             0x4C => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.H)),
             0x4D => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.L)),
             0x4E => self.registers.assign_single(SingleRegister.C, self.read_memory_hl()),
+            0x57 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.A)),
             0x50 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.B)),
             0x51 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.C)),
             0x52 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.D)),
@@ -780,6 +811,7 @@ pub const Cpu = struct {
             0x54 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.H)),
             0x55 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.L)),
             0x56 => self.registers.assign_single(SingleRegister.D, self.read_memory_hl()),
+            0x5F => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.A)),
             0x58 => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.B)),
             0x59 => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.C)),
             0x5A => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.D)),
@@ -787,6 +819,7 @@ pub const Cpu = struct {
             0x5C => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.H)),
             0x5D => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.L)),
             0x5E => self.registers.assign_single(SingleRegister.E, self.read_memory_hl()),
+            0x67 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.A)),
             0x60 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.B)),
             0x61 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.C)),
             0x62 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.D)),
@@ -794,6 +827,7 @@ pub const Cpu = struct {
             0x64 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.H)),
             0x65 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.L)),
             0x66 => self.registers.assign_single(SingleRegister.H, self.read_memory_hl()),
+            0x6F => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.A)),
             0x68 => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.B)),
             0x69 => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.C)),
             0x6A => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.D)),
@@ -829,6 +863,8 @@ pub const Cpu = struct {
 
                 self.registers.assign_single(SingleRegister.A, imm);
             },
+
+            // LD, a, A
             0x02 => {
                 const val = self.registers.read_double(PairRegister.BC);
                 self.memory.write_u8(val, self.registers.read_single(SingleRegister.A));
@@ -890,7 +926,7 @@ pub const Cpu = struct {
             },
             0xF0 => {
                 const nn = self.advance_pc();
-                const val = self.memory.read_u8(0xFF00 + @as(u16, nn));
+                const val = self.memory.read_u8(0xFF00 | @as(u16, nn));
 
                 self.registers.assign_single(SingleRegister.A, val);
             },
@@ -1019,18 +1055,50 @@ pub const Cpu = struct {
             },
 
             // CALL
-            0xCD => {
-                const val = self.advance_pc16();
+            0xCD => self.call(),
+            0xC4 => {
+                const zero = self.registers.read_flags().zero;
 
-                self.stack_push(self.registers.pc);
-                self.registers.pc = val;
+                if (zero == 0)
+                    self.call();
             },
+            0xCC => {
+                const zero = self.registers.read_flags().zero;
+
+                if (zero == 1)
+                    self.call();
+            },
+            0xD4 => {
+                const carry = self.registers.read_flags().carry;
+
+                if (carry == 0)
+                    self.call();
+            },
+            0xDC => {
+                // TODO: learn how to rewrite all of this to self.do_if_carry(Self.call)
+                const carry = self.registers.read_flags().carry;
+
+                if (carry == 1)
+                    self.call();
+            },
+
+            // CP
+            0xBF => self.alu_cp(self.registers.read_single(SingleRegister.A)),
+            0xB8 => self.alu_cp(self.registers.read_single(SingleRegister.B)),
+            0xB9 => self.alu_cp(self.registers.read_single(SingleRegister.C)),
+            0xBA => self.alu_cp(self.registers.read_single(SingleRegister.D)),
+            0xBB => self.alu_cp(self.registers.read_single(SingleRegister.E)),
+            0xBC => self.alu_cp(self.registers.read_single(SingleRegister.H)),
+            0xBD => self.alu_cp(self.registers.read_single(SingleRegister.L)),
+            0xBE => self.alu_cp(self.read_memory_hl()),
+            0xFE => self.alu_cp(self.advance_pc()),
             else => {
                 std.debug.print("Unknown opcode {x}\n", .{i});
                 @panic("");
             },
         }
 
+        std.debug.print("\n", .{});
         self.dump_state(std.debug);
     }
 

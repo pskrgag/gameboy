@@ -13,6 +13,8 @@ const INTERNAL_RAM8K_SIZE = 0x2000;
 const VIDEO_RAM_BASE = 0x8000;
 const VIDEO_RAM_SIZE = 0x3000;
 
+const TIMER_CTRL = 0xFF07;
+
 const IE_REG = 0xFFFF;
 
 // Devices
@@ -35,6 +37,11 @@ pub const Memory = struct {
         };
     }
 
+    pub fn tick(self: *Self, tcycles: u8) void {
+        _ = self;
+        _ = tcycles;
+    }
+
     pub fn new(rom: []u8) Self {
         var def = Self.default();
 
@@ -42,79 +49,57 @@ pub const Memory = struct {
         return def;
     }
 
-    pub fn write_u8(self: *Self, addr: u16, val: u8) void {
+    pub fn write(self: *Self, comptime tp: type, addr: u16, val: tp) void {
+        const type_size = @sizeOf(tp);
+
         switch (addr) {
             ROM_BASE...ROM_BASE + ROM_SIZE - 1 => {
                 const idx = addr - ROM_BASE;
 
-                self.rom[idx] = val;
+                @memcpy(self.rom[idx .. idx + type_size], std.mem.asBytes(&val));
             },
             INTERNAL_RAM_BASE...INTERNAL_RAM_BASE + INTERNAL_RAM_SIZE - 1 => {
                 const idx = addr - INTERNAL_RAM_BASE;
 
-                self.ram[idx] = val;
+                @memcpy(self.ram[idx .. idx + 1], std.mem.asBytes(&val));
             },
-            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE - 1 => {
+            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE => {
                 const idx = addr - INTERNAL_RAM8K_BASE;
 
-                self.ram8k[idx] = val;
+                @memcpy(self.ram8k[idx .. idx + 1], std.mem.asBytes(&val));
             },
             VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE => {
                 // SKIP
             },
-            IE_REG => {
-                // SKIP
+            TIMER_CTRL => {
+                self.timer.write_control(@truncate(val));
             },
             else => {
-                std.debug.print("\n{x}\n", .{addr});
+                std.debug.print("\nAddr {x}\n", .{addr});
                 @panic("Write to unknown memory");
             },
         }
     }
 
-    pub fn write_u16(self: *Self, addr: u16, val: u16) void {
+    pub fn read(self: *Self, comptime tp: type, addr: u16) tp {
+        var res: tp = 0;
+        const type_size = @sizeOf(tp);
+
         switch (addr) {
             ROM_BASE...ROM_BASE + ROM_SIZE - 1 => {
                 const idx = addr - ROM_BASE;
 
-                self.rom[idx] = @truncate(val & 0xff);
-                self.rom[idx + 1] = @truncate((val & 0xff) >> 8);
+                @memcpy(std.mem.asBytes(&res), self.rom[idx .. idx + type_size]);
             },
             INTERNAL_RAM_BASE...INTERNAL_RAM_BASE + INTERNAL_RAM_SIZE - 1 => {
                 const idx = addr - INTERNAL_RAM_BASE;
 
-                self.ram[idx] = @truncate(val & 0xff);
-                self.ram[idx + 1] = @truncate((val & 0xff00) >> 8);
+                @memcpy(std.mem.asBytes(&res), self.ram[idx .. idx + type_size]);
             },
-            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE - 1 => {
+            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE => {
                 const idx = addr - INTERNAL_RAM8K_BASE;
 
-                self.ram8k[idx] = @truncate(val & 0xff);
-                self.ram8k[idx + 1] = @truncate((val & 0xff00) >> 8);
-            },
-            VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE => {
-                // SKIP
-            },
-            else => @panic("Write to unknown memory"),
-        }
-    }
-
-    pub fn read_u8(self: *Self, addr: u16) u8 {
-        switch (addr) {
-            ROM_BASE...ROM_BASE + ROM_SIZE - 1 => {
-                const idx = addr - ROM_BASE;
-
-                return self.rom[idx];
-            },
-            INTERNAL_RAM_BASE...INTERNAL_RAM_BASE + INTERNAL_RAM_SIZE - 1 => {
-                const idx = addr - INTERNAL_RAM_BASE;
-
-                return self.ram[idx];
-            },
-            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE - 1 => {
-                const idx = addr - INTERNAL_RAM8K_BASE;
-
-                return self.ram8k[idx];
+                @memcpy(std.mem.asBytes(&res), self.ram8k[idx .. idx + type_size]);
             },
             LY => return 0,
             else => {
@@ -122,26 +107,7 @@ pub const Memory = struct {
                 @panic("Read of unknown memory");
             },
         }
-    }
 
-    pub fn read_u16(self: *Self, addr: u16) u16 {
-        switch (addr) {
-            ROM_BASE...ROM_BASE + ROM_SIZE - 1 => {
-                const idx = addr - ROM_BASE;
-
-                return self.rom[idx] | @as(u16, self.rom[idx + 1]) << 8;
-            },
-            INTERNAL_RAM_BASE...INTERNAL_RAM_BASE + INTERNAL_RAM_SIZE - 1 => {
-                const idx = addr - INTERNAL_RAM_BASE;
-
-                return self.ram[idx] | (@as(u16, self.ram[idx + 1]) << 8);
-            },
-            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE - 1 => {
-                const idx = addr - INTERNAL_RAM8K_BASE;
-
-                return self.ram8k[idx] | (@as(u16, self.ram8k[idx + 1]) << 8);
-            },
-            else => @panic("Write to unknown memory"),
-        }
+        return res;
     }
 };

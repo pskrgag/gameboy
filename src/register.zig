@@ -187,8 +187,8 @@ test "Test register API" {
 
     regs.assign(af, 1 | (2 << 8));
 
-    try expectEqual(regs.regs[0], 1);
-    try expectEqual(regs.regs[1], 2);
-    try expectEqual(regs.read_single(SingleRegister.B), 1);
-    try expectEqual(regs.read_single(SingleRegister.C), 2);
+    try expectEqual(regs.regs[3], 1);
+    try expectEqual(regs.regs[2], 2);
+    try expectEqual(regs.read_single(SingleRegister.B), 2);
+    try expectEqual(regs.read_single(SingleRegister.C), 1);
 }

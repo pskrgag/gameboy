@@ -1,23 +1,27 @@
 const std = @import("std");
+const asBytes = std.mem.asBytes;
 
-pub const Timer = packed struct {
-    sbz: u4,
+pub const Timer = struct {
+    div: u8,
+    counter: u8,
+    modulo: u8,
+    stop: u1,
     freq: u2,
-    control: u1,
 
     const Self = @This();
 
     pub fn default() Self {
-        comptime std.debug.assert(@sizeOf(Self) == 1);
-
         return Self{
+            .div = 0,
+            .counter = 0,
+            .modulo = 0,
+            .stop = 0,
             .freq = 0,
-            .control = 0,
-            .sbz = 0,
         };
     }
 
-    pub fn write(self: *Self, val: u8) void {
-        @memcpy(self, &val);
+    pub fn write_control(self: *Self, val: u3) void {
+        self.freq = @truncate(val & 0b11);
+        self.stop = @truncate((val & 0b100) >> 2);
     }
 };

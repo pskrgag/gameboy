@@ -1,9 +1,10 @@
 const std = @import("std");
-const Cpu = @import("cpu.zig").Cpu;
+const Gameboy = @import("gameboy.zig").Gameboy;
 
 pub fn main() !void {
-    const cpu = Cpu.default();
+    var fake = [_]u8{ 1, 2, 3 };
+    const cpu = Gameboy.default(fake[0..]);
 
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {d} are belong to us.\n", .{cpu.registers.regs[0]});
+    _ = cpu;
+    std.debug.print("All your {d} are belong to us.\n", .{1});
 }

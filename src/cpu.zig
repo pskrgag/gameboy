@@ -8,6 +8,43 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Memory = @import("memory.zig").Memory;
 
+const single_cycles = [_]u8{
+    1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1,
+    1, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
+    3, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
+    3, 3, 2, 2, 3, 3, 3, 1, 3, 2, 2, 2, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
+    2, 2, 2, 2, 2, 2, 1, 2, 1, 1, 1, 1, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
+    1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
+    5, 3, 4, 4, 6, 4, 2, 4, 5, 4, 4, 0, 6, 6, 2, 4,
+    5, 3, 4, 0, 6, 4, 2, 4, 5, 4, 4, 0, 6, 0, 2, 4,
+    3, 3, 2, 0, 0, 4, 2, 4, 4, 1, 4, 0, 0, 0, 2, 4,
+    3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4,
+};
+const double_cycles = [_]u8{
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 3, 2,
+    2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 3, 2,
+    2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 3, 2,
+    2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 2, 3, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+    2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
+};
+
 pub const Cpu = struct {
     registers: RegisterFile,
     memory: Memory,
@@ -23,12 +60,30 @@ pub const Cpu = struct {
 
     fn write_memory_hl(self: *Self, val: u8) void {
         const hl = self.registers.read(Register{ .double = PairRegister.HL });
-        self.memory.write_u8(hl, val);
+
+        self.memory_write_u8(hl, val);
     }
 
     fn read_memory_hl(self: *Self) u8 {
         const hl = self.registers.read(Register{ .double = PairRegister.HL });
-        return self.memory.read_u8(hl);
+
+        return self.memory_read_u8(hl);
+    }
+
+    fn memory_write_u8(self: *Self, off: u16, val: u8) void {
+        self.memory.write(u8, off, val);
+    }
+
+    fn memory_write_u16(self: *Self, off: u16, val: u16) void {
+        self.memory_write_u16(off, val);
+    }
+
+    fn memory_read_u8(self: *Self, off: u16) u8 {
+        return self.memory.read(u8, off);
+    }
+
+    fn memory_read_u16(self: *Self, off: u16) u16 {
+        return self.memory.read(u16, off);
     }
 
     fn alu_add16(self: *Self, val1: u16, val: u16) u16 {
@@ -41,6 +96,7 @@ pub const Cpu = struct {
             .set_half_curry(@intFromBool(((val & 0xFFF) + (val1 & 0xFFF)) > 0xFFF));
 
         self.registers.update_flags(new_flags);
+
         return @truncate(res);
     }
 
@@ -321,6 +377,7 @@ pub const Cpu = struct {
             .set_carry(@intFromBool(carry));
 
         self.registers.update_flags(flags);
+
         return val;
     }
 
@@ -457,18 +514,18 @@ pub const Cpu = struct {
 
     fn stack_push(self: *Self, val: u16) void {
         self.registers.sp -= 2;
-        self.memory.write_u16(self.registers.sp, val);
+        self.memory.write(u16, self.registers.sp, val);
     }
 
     fn stack_pop(self: *Self) u16 {
-        const val = self.memory.read_u16(self.registers.sp);
+        const val = self.memory_read_u16(self.registers.sp);
 
         self.registers.sp += 2;
         return val;
     }
 
     fn advance_pc(self: *Self) u8 {
-        const i = self.memory.read_u8(self.registers.pc);
+        const i = self.memory_read_u8(self.registers.pc);
 
         self.registers.pc += 1;
         return i;
@@ -495,13 +552,29 @@ pub const Cpu = struct {
         self.registers.pc = val;
     }
 
-    pub fn execute(self: *Self) !void {
-        while (true) {
-            try self.execute_one();
-        }
+    fn ld(self: *Self, reg: SingleRegister, val: u8) void {
+        self.registers.assign_single(reg, val);
     }
 
-    pub fn execute_one(self: *Self) !void {
+    fn if_carry(self: *Self, do: *const fn (self: *Self) void, val: u1) void {
+        const carry = self.registers.read_flags().carry;
+
+        if (carry == val)
+            do(self);
+    }
+
+    fn if_zero(self: *Self, do: *const fn (self: *Self) void, val: u1) void {
+        const zero = self.registers.read_flags().zero;
+
+        if (zero == val)
+            do(self);
+    }
+
+    pub fn tick(self: *Self) u8 {
+        return self.execute_one();
+    }
+
+    pub fn execute_one(self: *Self) u8 {
         const i = self.advance_pc();
 
         std.debug.print("Executing {x}", .{i});
@@ -607,7 +680,7 @@ pub const Cpu = struct {
 
             // Add to SP
             0xE8 => |_| {
-                const imm = self.memory.read_u8(self.registers.pc);
+                const imm = self.memory_read_u8(self.registers.pc);
 
                 self.registers.sp = self.alu_add16(self.registers.sp, imm);
                 self.registers.pc += 1;
@@ -752,7 +825,9 @@ pub const Cpu = struct {
             },
 
             // Nop
-            0x00 => {},
+            0x00 => {
+                // self.cycles += 4;
+            },
             // Halt
             0x76 => @panic("HALT"),
 
@@ -779,62 +854,62 @@ pub const Cpu = struct {
                 }
             },
             // LR reg,reg
-            0x7F => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.A)),
-            0x78 => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.B)),
-            0x79 => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.C)),
-            0x7A => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.D)),
-            0x7B => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.E)),
-            0x7C => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.H)),
-            0x7D => self.registers.assign_single(SingleRegister.A, self.registers.read_single(SingleRegister.L)),
-            0x7E => self.registers.assign_single(SingleRegister.A, self.read_memory_hl()),
-            0x47 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.A)),
-            0x40 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.B)),
-            0x41 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.C)),
-            0x42 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.D)),
-            0x43 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.E)),
-            0x44 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.H)),
-            0x45 => self.registers.assign_single(SingleRegister.B, self.registers.read_single(SingleRegister.L)),
-            0x46 => self.registers.assign_single(SingleRegister.B, self.read_memory_hl()),
-            0x4F => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.A)),
-            0x48 => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.B)),
-            0x49 => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.C)),
-            0x4A => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.D)),
-            0x4B => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.E)),
-            0x4C => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.H)),
-            0x4D => self.registers.assign_single(SingleRegister.C, self.registers.read_single(SingleRegister.L)),
-            0x4E => self.registers.assign_single(SingleRegister.C, self.read_memory_hl()),
-            0x57 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.A)),
-            0x50 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.B)),
-            0x51 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.C)),
-            0x52 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.D)),
-            0x53 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.E)),
-            0x54 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.H)),
-            0x55 => self.registers.assign_single(SingleRegister.D, self.registers.read_single(SingleRegister.L)),
-            0x56 => self.registers.assign_single(SingleRegister.D, self.read_memory_hl()),
-            0x5F => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.A)),
-            0x58 => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.B)),
-            0x59 => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.C)),
-            0x5A => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.D)),
-            0x5B => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.E)),
-            0x5C => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.H)),
-            0x5D => self.registers.assign_single(SingleRegister.E, self.registers.read_single(SingleRegister.L)),
-            0x5E => self.registers.assign_single(SingleRegister.E, self.read_memory_hl()),
-            0x67 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.A)),
-            0x60 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.B)),
-            0x61 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.C)),
-            0x62 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.D)),
-            0x63 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.E)),
-            0x64 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.H)),
-            0x65 => self.registers.assign_single(SingleRegister.H, self.registers.read_single(SingleRegister.L)),
-            0x66 => self.registers.assign_single(SingleRegister.H, self.read_memory_hl()),
-            0x6F => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.A)),
-            0x68 => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.B)),
-            0x69 => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.C)),
-            0x6A => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.D)),
-            0x6B => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.E)),
-            0x6C => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.H)),
-            0x6D => self.registers.assign_single(SingleRegister.L, self.registers.read_single(SingleRegister.L)),
-            0x6E => self.registers.assign_single(SingleRegister.L, self.read_memory_hl()),
+            0x7F => self.ld(SingleRegister.A, self.registers.read_single(SingleRegister.A)),
+            0x78 => self.ld(SingleRegister.A, self.registers.read_single(SingleRegister.B)),
+            0x79 => self.ld(SingleRegister.A, self.registers.read_single(SingleRegister.C)),
+            0x7A => self.ld(SingleRegister.A, self.registers.read_single(SingleRegister.D)),
+            0x7B => self.ld(SingleRegister.A, self.registers.read_single(SingleRegister.E)),
+            0x7C => self.ld(SingleRegister.A, self.registers.read_single(SingleRegister.H)),
+            0x7D => self.ld(SingleRegister.A, self.registers.read_single(SingleRegister.L)),
+            0x7E => self.ld(SingleRegister.A, self.read_memory_hl()),
+            0x47 => self.ld(SingleRegister.B, self.registers.read_single(SingleRegister.A)),
+            0x40 => self.ld(SingleRegister.B, self.registers.read_single(SingleRegister.B)),
+            0x41 => self.ld(SingleRegister.B, self.registers.read_single(SingleRegister.C)),
+            0x42 => self.ld(SingleRegister.B, self.registers.read_single(SingleRegister.D)),
+            0x43 => self.ld(SingleRegister.B, self.registers.read_single(SingleRegister.E)),
+            0x44 => self.ld(SingleRegister.B, self.registers.read_single(SingleRegister.H)),
+            0x45 => self.ld(SingleRegister.B, self.registers.read_single(SingleRegister.L)),
+            0x46 => self.ld(SingleRegister.B, self.read_memory_hl()),
+            0x4F => self.ld(SingleRegister.C, self.registers.read_single(SingleRegister.A)),
+            0x48 => self.ld(SingleRegister.C, self.registers.read_single(SingleRegister.B)),
+            0x49 => self.ld(SingleRegister.C, self.registers.read_single(SingleRegister.C)),
+            0x4A => self.ld(SingleRegister.C, self.registers.read_single(SingleRegister.D)),
+            0x4B => self.ld(SingleRegister.C, self.registers.read_single(SingleRegister.E)),
+            0x4C => self.ld(SingleRegister.C, self.registers.read_single(SingleRegister.H)),
+            0x4D => self.ld(SingleRegister.C, self.registers.read_single(SingleRegister.L)),
+            0x4E => self.ld(SingleRegister.C, self.read_memory_hl()),
+            0x57 => self.ld(SingleRegister.D, self.registers.read_single(SingleRegister.A)),
+            0x50 => self.ld(SingleRegister.D, self.registers.read_single(SingleRegister.B)),
+            0x51 => self.ld(SingleRegister.D, self.registers.read_single(SingleRegister.C)),
+            0x52 => self.ld(SingleRegister.D, self.registers.read_single(SingleRegister.D)),
+            0x53 => self.ld(SingleRegister.D, self.registers.read_single(SingleRegister.E)),
+            0x54 => self.ld(SingleRegister.D, self.registers.read_single(SingleRegister.H)),
+            0x55 => self.ld(SingleRegister.D, self.registers.read_single(SingleRegister.L)),
+            0x56 => self.ld(SingleRegister.D, self.read_memory_hl()),
+            0x5F => self.ld(SingleRegister.E, self.registers.read_single(SingleRegister.A)),
+            0x58 => self.ld(SingleRegister.E, self.registers.read_single(SingleRegister.B)),
+            0x59 => self.ld(SingleRegister.E, self.registers.read_single(SingleRegister.C)),
+            0x5A => self.ld(SingleRegister.E, self.registers.read_single(SingleRegister.D)),
+            0x5B => self.ld(SingleRegister.E, self.registers.read_single(SingleRegister.E)),
+            0x5C => self.ld(SingleRegister.E, self.registers.read_single(SingleRegister.H)),
+            0x5D => self.ld(SingleRegister.E, self.registers.read_single(SingleRegister.L)),
+            0x5E => self.ld(SingleRegister.E, self.read_memory_hl()),
+            0x67 => self.ld(SingleRegister.H, self.registers.read_single(SingleRegister.A)),
+            0x60 => self.ld(SingleRegister.H, self.registers.read_single(SingleRegister.B)),
+            0x61 => self.ld(SingleRegister.H, self.registers.read_single(SingleRegister.C)),
+            0x62 => self.ld(SingleRegister.H, self.registers.read_single(SingleRegister.D)),
+            0x63 => self.ld(SingleRegister.H, self.registers.read_single(SingleRegister.E)),
+            0x64 => self.ld(SingleRegister.H, self.registers.read_single(SingleRegister.H)),
+            0x65 => self.ld(SingleRegister.H, self.registers.read_single(SingleRegister.L)),
+            0x66 => self.ld(SingleRegister.H, self.read_memory_hl()),
+            0x6F => self.ld(SingleRegister.L, self.registers.read_single(SingleRegister.A)),
+            0x68 => self.ld(SingleRegister.L, self.registers.read_single(SingleRegister.B)),
+            0x69 => self.ld(SingleRegister.L, self.registers.read_single(SingleRegister.C)),
+            0x6A => self.ld(SingleRegister.L, self.registers.read_single(SingleRegister.D)),
+            0x6B => self.ld(SingleRegister.L, self.registers.read_single(SingleRegister.E)),
+            0x6C => self.ld(SingleRegister.L, self.registers.read_single(SingleRegister.H)),
+            0x6D => self.ld(SingleRegister.L, self.registers.read_single(SingleRegister.L)),
+            0x6E => self.ld(SingleRegister.L, self.read_memory_hl()),
             0x70 => self.write_memory_hl(self.registers.read_single(SingleRegister.B)),
             0x71 => self.write_memory_hl(self.registers.read_single(SingleRegister.C)),
             0x72 => self.write_memory_hl(self.registers.read_single(SingleRegister.D)),
@@ -842,7 +917,7 @@ pub const Cpu = struct {
             0x74 => self.write_memory_hl(self.registers.read_single(SingleRegister.H)),
             0x75 => self.write_memory_hl(self.registers.read_single(SingleRegister.L)),
             0x36 => {
-                const imm = self.memory.read_u8(self.registers.pc);
+                const imm = self.memory_read_u8(self.registers.pc);
                 self.registers.pc += 1;
 
                 self.write_memory_hl(imm);
@@ -850,13 +925,13 @@ pub const Cpu = struct {
 
             // LD A, n
             0x0A => {
-                self.registers.assign_single(SingleRegister.A, self.memory.read_u8(self.registers.read_double(PairRegister.BC)));
+                self.registers.assign_single(SingleRegister.A, self.memory_read_u8(self.registers.read_double(PairRegister.BC)));
             },
             0x1A => {
-                self.registers.assign_single(SingleRegister.A, self.memory.read_u8(self.registers.read_double(PairRegister.DE)));
+                self.registers.assign_single(SingleRegister.A, self.memory_read_u8(self.registers.read_double(PairRegister.DE)));
             },
             0xFA => {
-                self.registers.assign_single(SingleRegister.A, self.memory.read_u8(self.registers.read_double(PairRegister.DE)));
+                self.registers.assign_single(SingleRegister.A, self.memory_read_u8(self.registers.read_double(PairRegister.DE)));
             },
             0x3E => {
                 const imm = self.advance_pc();
@@ -867,32 +942,32 @@ pub const Cpu = struct {
             // LD, a, A
             0x02 => {
                 const val = self.registers.read_double(PairRegister.BC);
-                self.memory.write_u8(val, self.registers.read_single(SingleRegister.A));
+                self.memory_write_u8(val, self.registers.read_single(SingleRegister.A));
             },
             0x12 => {
                 const val = self.registers.read_double(PairRegister.DE);
 
-                self.memory.write_u8(val, self.registers.read_single(SingleRegister.A));
+                self.memory_write_u8(val, self.registers.read_single(SingleRegister.A));
             },
             0x77 => {
                 const val = self.registers.read_double(PairRegister.HL);
-                self.memory.write_u8(val, self.registers.read_single(SingleRegister.A));
+                self.memory_write_u8(val, self.registers.read_single(SingleRegister.A));
             },
             0xEA => {
                 const val = self.advance_pc();
 
-                self.memory.write_u8(val, self.registers.read_single(SingleRegister.A));
+                self.memory_write_u8(val, self.registers.read_single(SingleRegister.A));
             },
             0xF2 => {
                 const c = self.registers.read_single(SingleRegister.C);
-                const val = self.memory.read_u8(@as(u16, c) + 0xFF00);
+                const val = self.memory_read_u8(@as(u16, c) + 0xFF00);
 
                 self.registers.assign_single(SingleRegister.A, val);
             },
             0xE2 => {
                 const c = self.registers.read_single(SingleRegister.C);
 
-                self.memory.write_u8(0xFF00 + @as(u16, c), self.registers.read_single(SingleRegister.A));
+                self.memory_write_u8(0xFF00 + @as(u16, c), self.registers.read_single(SingleRegister.A));
             },
             0x3A => {
                 const c = self.read_memory_hl();
@@ -922,11 +997,11 @@ pub const Cpu = struct {
                 const a = self.registers.read_single(SingleRegister.A);
                 const nn = self.advance_pc();
 
-                self.memory.write_u8(0xFF00 + @as(u16, nn), a);
+                self.memory_write_u8(0xFF00 + @as(u16, nn), a);
             },
             0xF0 => {
                 const nn = self.advance_pc();
-                const val = self.memory.read_u8(0xFF00 | @as(u16, nn));
+                const val = self.memory_read_u8(0xFF00 | @as(u16, nn));
 
                 self.registers.assign_single(SingleRegister.A, val);
             },
@@ -963,7 +1038,7 @@ pub const Cpu = struct {
             0x08 => {
                 const val = self.advance_pc16();
 
-                self.memory.write_u16(val, self.registers.sp);
+                self.memory_write_u16(val, self.registers.sp);
             },
 
             // Push
@@ -1025,61 +1100,38 @@ pub const Cpu = struct {
             },
 
             // DI
-            0xF3 => {},
+            0xF3 => {
+                // self.cycles += 4;
+            },
 
             // Ret
             0xC9 => self.ret(),
             0xC0 => {
-                const zero = self.registers.read_flags().zero;
-
-                if (zero == 0)
-                    self.ret();
+                self.if_zero(Self.ret, 0);
             },
             0xC8 => {
-                const zero = self.registers.read_flags().zero;
-
-                if (zero == 1)
-                    self.ret();
+                self.if_zero(Self.ret, 1);
             },
             0xD0 => {
-                const carry = self.registers.read_flags().carry;
-
-                if (carry == 0)
-                    self.ret();
+                self.if_carry(Self.ret, 0);
             },
             0xD8 => {
-                const carry = self.registers.read_flags().carry;
-
-                if (carry == 1)
-                    self.ret();
+                self.if_carry(Self.ret, 1);
             },
 
             // CALL
             0xCD => self.call(),
             0xC4 => {
-                const zero = self.registers.read_flags().zero;
-
-                if (zero == 0)
-                    self.call();
+                self.if_zero(Self.call, 0);
             },
             0xCC => {
-                const zero = self.registers.read_flags().zero;
-
-                if (zero == 1)
-                    self.call();
+                self.if_zero(Self.call, 1);
             },
             0xD4 => {
-                const carry = self.registers.read_flags().carry;
-
-                if (carry == 0)
-                    self.call();
+                self.if_carry(Self.call, 0);
             },
             0xDC => {
-                // TODO: learn how to rewrite all of this to self.do_if_carry(Self.call)
-                const carry = self.registers.read_flags().carry;
-
-                if (carry == 1)
-                    self.call();
+                self.if_carry(Self.call, 1);
             },
 
             // CP
@@ -1100,6 +1152,12 @@ pub const Cpu = struct {
 
         std.debug.print("\n", .{});
         self.dump_state(std.debug);
+
+        if (i < 256) {
+            return single_cycles[i];
+        } else {
+            return single_cycles[i & 0xFF];
+        }
     }
 
     pub fn dump_state(self: *Self, writer: anytype) void {
@@ -1126,25 +1184,25 @@ test "Test execute add" {
 
     cpu.registers.assign_single(b, 1);
 
-    try cpu.execute_one();
+    _ = cpu.execute_one();
     try expectEqual(cpu.registers.read_single(a), 1);
     try expectEqual(0, @as(u8, @bitCast(cpu.registers.read_flags())));
 
-    try cpu.execute_one();
+    _ = cpu.execute_one();
     try expectEqual(cpu.registers.read_single(a), 2);
     try expectEqual(0, @as(u8, @bitCast(cpu.registers.read_flags())));
 
     // Test half curry
     cpu.registers.assign_single(b, 143);
 
-    try cpu.execute_one();
+    _ = cpu.execute_one();
     try expectEqual(cpu.registers.read_single(a), 145);
     try expectEqual(0b100000, @as(u8, @bitCast(cpu.registers.read_flags())));
 
     // Test curry
     cpu.registers.assign_single(b, 143);
 
-    try cpu.execute_one();
+    _ = cpu.execute_one();
     try expectEqual(cpu.registers.read_single(a), (143 + 145) & 0xff);
     try expectEqual(0b110000, @as(u8, @bitCast(cpu.registers.read_flags())));
 }
@@ -1168,7 +1226,7 @@ test "Test and" {
     cpu.registers.regs = [_]u8{0} ** (8);
 
     cpu.registers.assign_single(b, 1);
-    try cpu.execute_one();
+    _ = cpu.execute_one();
 
     // Manual say that half carry should be set
     try expectEqual(0b10100000, @as(u8, @bitCast(cpu.registers.read_flags())));
@@ -1190,5 +1248,7 @@ test "Test 03-op" {
     try expect(code.len != 0);
 
     var cpu = Cpu.default(code);
-    try cpu.execute();
+    while (true) {
+        _ = cpu.tick();
+    }
 }

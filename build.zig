@@ -1,4 +1,5 @@
 const std = @import("std");
+const sdl = @import("SDL2");
 
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
@@ -21,6 +22,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+
+    const sdk = sdl.init(b, .{ .dep_name = "SDL2" });
+    sdk.link(exe, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
+
+    // Add "sdl2" package that exposes the SDL2 api (like SDL_Init or SDL_CreateWindow)
+    exe.root_module.addImport("sdl2", sdk.getNativeModule());
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

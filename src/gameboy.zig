@@ -14,7 +14,6 @@ pub const Gameboy = struct {
     }
 
     fn tick(self: *Self) void {
-        const ticks = self.cpu.tick();
-        self.memory.tick(ticks);
+        self.cpu.tick();
     }
 };

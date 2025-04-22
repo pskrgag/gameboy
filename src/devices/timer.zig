@@ -35,14 +35,13 @@ pub const Timer = struct {
     }
 
     pub fn tick(self: *Self, t_ticks: u8) void {
-        std.debug.print("TAC {x}\n", .{self.tac});
         std.debug.assert(t_ticks <= 32);
 
         const ticks = Self.tac_to_t_ticks(@truncate(self.tac));
         const log = math.log2(ticks) - 1;
         const log_mask: u16 = @as(u16, 1) << @truncate(log);
 
-        self.div += t_ticks;
+        self.div +%= t_ticks;
         const new = @intFromBool((self.div & log_mask) != 0) & self.timer_is_enabled();
 
         if ((self.prev == 1) and (new == 0)) {

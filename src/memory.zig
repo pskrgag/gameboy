@@ -1,5 +1,7 @@
 const std = @import("std");
 const Timer = @import("devices/timer.zig").Timer;
+const Ppu = @import("devices/gpu.zig").Ppu;
+const Serial = @import("devices/serial.zig").Serial;
 
 const ROM_SIZE = 0x8000;
 const ROM_BASE = 0x0;
@@ -11,7 +13,7 @@ const INTERNAL_RAM8K_BASE = 0xC000;
 const INTERNAL_RAM8K_SIZE = 0x2000;
 
 const VIDEO_RAM_BASE = 0x8000;
-const VIDEO_RAM_SIZE = 0x3000;
+const VIDEO_RAM_SIZE = 0x2000;
 
 const TIMER_BASE = 0xFF04;
 const TIMER_SIZE = 4;
@@ -25,13 +27,21 @@ const IE_REG = 0xFFFF;
 // Interrupt flag
 const IF_REG = 0xFF0F;
 
-const LY = 0xFF44;
+// LCD registers
+const LCD_BASE = 0xFF40;
+const LCD_SIZE = 8;
+
+// Serial registers
+const SERIAL_BEGIN = 0xFF01;
+const SERIAL_SIZE = 2;
 
 pub const Memory = struct {
     rom: [ROM_SIZE]u8,
     ram: [INTERNAL_RAM_SIZE]u8,
     ram8k: [INTERNAL_RAM8K_SIZE]u8,
     timer: Timer,
+    ppu: Ppu,
+    serial: Serial,
     ie: u8,
     iff: u8,
 
@@ -43,13 +53,16 @@ pub const Memory = struct {
             .ram = [_]u8{0} ** (INTERNAL_RAM_SIZE),
             .ram8k = [_]u8{0} ** (INTERNAL_RAM8K_SIZE),
             .timer = Timer.default(),
+            .ppu = Ppu.default(),
             .ie = 0,
             .iff = 0,
+            .serial = Serial.default(),
         };
     }
 
     pub fn tick(self: *Self, tcycles: u8) void {
         self.timer.tick(tcycles);
+        self.ppu.tick(tcycles);
     }
 
     pub fn new(rom: []u8) Self {
@@ -78,15 +91,17 @@ pub const Memory = struct {
 
                 @memcpy(self.ram8k[idx .. idx + type_size], std.mem.asBytes(&val));
             },
-            VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE => {
-                // SKIP
+            VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE, 0xFF68, 0xFF69, 0xFF4F => {
+                self.ppu.write(addr, @truncate(val));
             },
             TIMER_BASE...TIMER_BASE + TIMER_SIZE => {
                 self.timer.write(addr, @truncate(val));
             },
+            LCD_BASE...LCD_BASE + LCD_SIZE => self.ppu.write(addr, @truncate(val)),
             IE_REG => self.ie = @truncate(val),
             IF_REG => self.iff = @truncate(val),
             SOUND_BASE...SOUND_BASE + SOUND_SIZE => {},
+            SERIAL_BEGIN...SERIAL_BEGIN + SERIAL_SIZE => self.serial.write(addr, @truncate(val)),
             else => {
                 std.debug.print("\nAddr {x}\n", .{addr});
                 @panic("Write to unknown memory");
@@ -114,11 +129,15 @@ pub const Memory = struct {
 
                 @memcpy(std.mem.asBytes(&res), self.ram8k[idx .. idx + type_size]);
             },
+            VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE => {
+                res = self.ppu.read(addr);
+            },
             IE_REG => res = self.ie,
             IF_REG => res = self.iff,
             SOUND_BASE...SOUND_BASE + SOUND_SIZE => {
                 res = 0;
             },
+            LCD_BASE...LCD_BASE + LCD_SIZE => res = self.ppu.read(addr),
             else => {
                 std.debug.print("Address {x}\n", .{addr});
                 @panic("Read of unknown memory");

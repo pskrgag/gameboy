@@ -11,8 +11,8 @@ const Memory = @import("memory.zig").Memory;
 const single_cycles = [_]u8{
     1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1,
     1, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
-    3, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
-    3, 3, 2, 2, 3, 3, 3, 1, 3, 2, 2, 2, 1, 1, 2, 1,
+    2, 3, 2, 2, 1, 1, 2, 1, 2, 2, 2, 2, 1, 1, 2, 1,
+    2, 3, 2, 2, 3, 3, 3, 1, 2, 2, 2, 2, 1, 1, 2, 1,
     1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
     1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
     1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
@@ -21,12 +21,11 @@ const single_cycles = [_]u8{
     1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
     1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
     1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
-    5, 3, 4, 4, 6, 4, 2, 4, 5, 4, 4, 0, 6, 6, 2, 4,
-    5, 3, 4, 0, 6, 4, 2, 4, 5, 4, 4, 0, 6, 0, 2, 4,
+    2, 3, 3, 4, 3, 4, 2, 4, 2, 4, 3, 0, 3, 6, 2, 4,
+    2, 3, 3, 0, 3, 4, 2, 4, 2, 4, 3, 0, 3, 0, 2, 4,
     3, 3, 2, 0, 0, 4, 2, 4, 4, 1, 4, 0, 0, 0, 2, 4,
     3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4,
 };
-
 const double_cycles = [_]u8{
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
@@ -45,10 +44,30 @@ const double_cycles = [_]u8{
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
 };
+const condition = [_]u8{
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    3, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+    3, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    5, 0, 4, 0, 6, 0, 0, 0, 5, 0, 4, 0, 6, 0, 0, 0,
+    5, 0, 4, 0, 6, 0, 0, 0, 5, 0, 4, 0, 6, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
 
 pub const Cpu = struct {
     registers: RegisterFile,
     memory: Memory,
+    off: i8, // Hack to make add_pc work as function pointer
+    cond: bool,
 
     const Self = @This();
 
@@ -56,6 +75,8 @@ pub const Cpu = struct {
         return Self{
             .registers = RegisterFile.default(),
             .memory = Memory.new(rom),
+            .off = 0,
+            .cond = false,
         };
     }
 
@@ -79,7 +100,7 @@ pub const Cpu = struct {
         self.memory_write_u16(off, val);
     }
 
-    fn memory_read_u8(self: *Self, off: u16) u8 {
+    pub fn memory_read_u8(self: *Self, off: u16) u8 {
         return self.memory.read(u8, off);
     }
 
@@ -139,8 +160,7 @@ pub const Cpu = struct {
 
         const new_flags = FlagRegister
             .default()
-            .set_zero(@intFromBool(res == 0))
-            .set_half_curry(1);
+            .set_zero(@intFromBool(res == 0));
 
         self.registers.update_flags(new_flags);
         self.registers.assign_single(SingleRegister.A, res);
@@ -560,24 +580,37 @@ pub const Cpu = struct {
     fn if_carry(self: *Self, do: *const fn (self: *Self) void, val: u1) void {
         const carry = self.registers.read_flags().carry;
 
-        if (carry == val)
+        if (carry == val) {
+            self.cond = true;
             do(self);
+        }
     }
 
     fn if_zero(self: *Self, do: *const fn (self: *Self) void, val: u1) void {
         const zero = self.registers.read_flags().zero;
 
-        if (zero == val)
+        if (zero == val) {
+            self.cond = true;
             do(self);
+        }
+    }
+
+    fn add_pc(self: *Self) void {
+        self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(self.off))));
     }
 
     pub fn tick(self: *Self) void {
         const ticks = self.execute_one();
+        std.debug.print("Ticks {x}\n", .{ticks});
         self.memory.tick(ticks);
     }
 
     pub fn execute_one(self: *Self) u8 {
         const i = self.advance_pc();
+        var next: u8 = 0;
+
+        self.off = 0;
+        self.cond = false;
 
         std.debug.print("Executing {x}", .{i});
         switch (i) {
@@ -601,6 +634,7 @@ pub const Cpu = struct {
             0x8C => |_| self.alu_addc(self.registers.read_single(SingleRegister.H)),
             0x8D => |_| self.alu_addc(self.registers.read_single(SingleRegister.L)),
             0x8E => |_| self.alu_addc(self.read_memory_hl()),
+            0xCE => |_| self.alu_addc(self.advance_pc()),
 
             // Sub instructions
             0x97 => |_| self.alu_sub(self.registers.read_single(SingleRegister.A)),
@@ -702,9 +736,9 @@ pub const Cpu = struct {
 
             // Swap nibble
             0xCB => |_| {
-                const next = self.advance_pc();
+                next = self.advance_pc();
 
-                std.debug.print(" {x}", .{next});
+                std.debug.print("--{x}\n", .{next});
                 switch (next) {
                     0x37 => |_| self.alu_swap_nibble_reg(SingleRegister.A),
                     0x30 => |_| self.alu_swap_nibble_reg(SingleRegister.B),
@@ -933,7 +967,8 @@ pub const Cpu = struct {
                 self.registers.assign_single(SingleRegister.A, self.memory_read_u8(self.registers.read_double(PairRegister.DE)));
             },
             0xFA => {
-                self.registers.assign_single(SingleRegister.A, self.memory_read_u8(self.registers.read_double(PairRegister.DE)));
+                const addr = self.advance_pc16();
+                self.registers.assign_single(SingleRegister.A, self.memory_read_u8(addr));
             },
             0x3E => {
                 const imm = self.advance_pc();
@@ -956,7 +991,7 @@ pub const Cpu = struct {
                 self.memory_write_u8(val, self.registers.read_single(SingleRegister.A));
             },
             0xEA => {
-                const val = self.advance_pc();
+                const val = self.advance_pc16();
 
                 self.memory_write_u8(val, self.registers.read_single(SingleRegister.A));
             },
@@ -999,7 +1034,7 @@ pub const Cpu = struct {
                 const a = self.registers.read_single(SingleRegister.A);
                 const nn = self.advance_pc();
 
-                self.memory_write_u8(0xFF00 + @as(u16, nn), a);
+                self.memory_write_u8(0xFF00 | @as(u16, nn), a);
             },
             0xF0 => {
                 const nn = self.advance_pc();
@@ -1070,35 +1105,36 @@ pub const Cpu = struct {
 
             // JR NZ
             0x20 => {
-                const zero = self.registers.read_flags().zero;
                 const offset: i8 = @bitCast(self.advance_pc());
 
-                if (zero == 0)
-                    self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(offset))));
+                self.off = @bitCast(@as(i8, @intCast(offset)));
+                self.if_zero(Self.add_pc, 0);
             },
             // JR Z
             0x28 => {
-                const zero = self.registers.read_flags().zero;
                 const offset: i8 = @bitCast(self.advance_pc());
 
-                if (zero == 1)
-                    self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(offset))));
+                self.off = @bitCast(@as(i8, @intCast(offset)));
+                self.if_zero(Self.add_pc, 1);
             },
             // JR NC
             0x30 => {
-                const carry = self.registers.read_flags().carry;
                 const offset: i8 = @bitCast(self.advance_pc());
 
-                if (carry == 0)
-                    self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(offset))));
+                self.off = @bitCast(@as(i8, @intCast(offset)));
+                self.if_carry(Self.add_pc, 0);
             },
             // JR C
             0x38 => {
-                const carry = self.registers.read_flags().carry;
                 const offset: i8 = @bitCast(self.advance_pc());
 
-                if (carry == 1)
-                    self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(offset))));
+                self.off = @bitCast(@as(i8, @intCast(offset)));
+                self.if_carry(Self.add_pc, 1);
+            },
+            // JP (HL)
+            0xE9 => {
+                const val = self.read_memory_hl();
+                self.registers.pc = val;
             },
 
             // DI
@@ -1155,10 +1191,15 @@ pub const Cpu = struct {
         std.debug.print("\n", .{});
         self.dump_state(std.debug);
 
-        if (i < 256) {
-            return single_cycles[i];
+        if (i != 0xCB) {
+            if (!self.cond) {
+                return single_cycles[i];
+            } else {
+                return condition[i];
+            }
         } else {
-            return single_cycles[i & 0xFF];
+            std.debug.assert(next != 0);
+            return double_cycles[next];
         }
     }
 
@@ -1233,24 +1274,4 @@ test "Test and" {
     // Manual say that half carry should be set
     try expectEqual(0b10100000, @as(u8, @bitCast(cpu.registers.read_flags())));
     try expectEqual(cpu.registers.read_single(a), 0);
-}
-
-test "Test 03-op" {
-    const expect = std.testing.expect;
-    //  Get an allocator
-    const allocator = std.testing.allocator;
-
-    var file = try std.fs.cwd().openFile("test-roms/cpu_instrs/individual/03-op sp,hl.gb", .{});
-    defer file.close();
-
-    const code = try file.readToEndAlloc(allocator, 35000);
-    defer allocator.free(code);
-
-    std.debug.print("LEN {d}\n", .{code.len});
-    try expect(code.len != 0);
-
-    var cpu = Cpu.default(code);
-    while (true) {
-        _ = cpu.tick();
-    }
 }

@@ -1,10 +1,26 @@
 const std = @import("std");
+const SDL = @import("sdl2"); // Created in build.zig by using ;
 const Gameboy = @import("gameboy.zig").Gameboy;
 
 pub fn main() !void {
-    var fake = [_]u8{ 1, 2, 3 };
-    const cpu = Gameboy.default(fake[0..]);
+    //  Get an allocator
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
 
-    _ = cpu;
-    std.debug.print("All your {d} are belong to us.\n", .{1});
+    var file = try std.fs.cwd().openFile("test-roms/cpu_instrs/individual//01-special.gb", .{});
+    defer file.close();
+
+    const code = try file.readToEndAlloc(allocator, 35000);
+    defer allocator.free(code);
+
+    std.debug.print("LEN {d}\n", .{code.len});
+
+    var gb = Gameboy.default(code);
+    defer gb.deinit();
+
+    try gb.run();
+}
+
+test {
+    std.testing.refAllDecls(@This());
 }

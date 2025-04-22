@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
     sdk.link(exe, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
 
     // Add "sdl2" package that exposes the SDL2 api (like SDL_Init or SDL_CreateWindow)
-    exe.root_module.addImport("sdl2", sdk.getNativeModule());
+    exe.root_module.addImport("sdl2", sdk.getWrapperModule());
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
@@ -58,10 +58,13 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/cpu.zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    sdk.link(exe_unit_tests, .dynamic, sdl.Library.SDL2); // link SDL2 as a shared library
+    exe_unit_tests.root_module.addImport("sdl2", sdk.getWrapperModule());
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 

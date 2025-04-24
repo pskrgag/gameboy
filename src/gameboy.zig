@@ -8,17 +8,15 @@ const WINDOW_WIDTH = 140;
 
 const TILE_SCALE = 10;
 
-// DEBUG window
-// 16x24 tiles. Each tile takes 32x32 (which means 4x scale)
-// 16 * 32 = 512 * 8
-// 24 * 32 = 768 * 8
-const DEBUG_WINDOW_HEIGTH = 16 * 8 * TILE_SCALE;
-const DEBUG_WINDOW_WIDTH = 24 * 8 * TILE_SCALE;
+const DEBUG_WINDOW_HEIGTH = WINDOW_HEIGTH * TILE_SCALE;
+const DEBUG_WINDOW_WIDTH = WINDOW_WIDTH * TILE_SCALE;
 
 pub const Gameboy = struct {
     cpu: Cpu,
     window: SDL.Window,
     renderer: SDL.Renderer,
+    y: u8,
+    x: u8,
 
     const Self = @This();
 
@@ -53,53 +51,42 @@ pub const Gameboy = struct {
             .cpu = Cpu.default(rom),
             .window = window,
             .renderer = renderer,
+            .x = 0,
+            .y = 0,
         };
     }
 
     pub fn run(self: *Self) !void {
         while (true) {
             try self.tick();
-            self.renderer.present();
         }
     }
 
     pub fn tick(self: *Self) !void {
-        // Display tiles
-        var i: u16 = 0x8000;
-        var y_start: usize = 0;
-        var x_start: usize = 0;
+        var next = self.cpu.memory.ppu.pop_pixel();
 
-        if (self.cpu.memory.ppu.updated) {
-            self.cpu.memory.ppu.updated = false;
+        while (next != null) {
+            const color = Ppu.ColorArray[next.?];
+            const rect =
+                SDL.Rectangle{
+                    .x = @intCast(@as(u16, self.x) * TILE_SCALE),
+                    .y = @intCast(@as(u16, self.y) * TILE_SCALE),
+                    .width = TILE_SCALE,
+                    .height = TILE_SCALE,
+                };
 
-            while (i < 0x9FFF) : (i += 16) {
-                var tile = std.mem.zeroes([16]u8);
+            try self.renderer.setColor(color);
+            try self.renderer.fillRect(rect);
 
-                for (0..16) |idx| {
-                    tile[idx] = self.cpu.memory_read_u8(@truncate(i + idx));
-                }
+            self.x += 1;
 
-                const colors = Ppu.tile_to_colors(&tile);
-                for (colors, 0..) |color, idx| {
-                    const rect =
-                        SDL.Rectangle{
-                            .x = @intCast(x_start + idx % 8 * TILE_SCALE),
-                            .y = @intCast(y_start + idx / 8 * TILE_SCALE),
-                            .width = TILE_SCALE,
-                            .height = TILE_SCALE,
-                        };
-
-                    try self.renderer.setColor(color);
-                    try self.renderer.fillRect(rect);
-                }
-
-                y_start += TILE_SCALE * 8;
-
-                if (y_start == DEBUG_WINDOW_HEIGTH) {
-                    y_start = 0;
-                    x_start += 8 * TILE_SCALE;
-                }
+            if (self.x == WINDOW_WIDTH) {
+                self.y = (self.y + 1) % WINDOW_HEIGTH;
+                self.x = 0;
+                self.renderer.present();
             }
+
+            next = self.cpu.memory.ppu.pop_pixel();
         }
 
         self.cpu.tick();

@@ -105,7 +105,7 @@ pub const RegisterFile = struct {
 
     pub fn default() Self {
         return Self{
-            .regs = [_]u8{ 0x11, @bitCast(FlagRegister.default().set_zero(1)), 0x0, 0x0, 0xFF, 0x56, 0x00, 0xD },
+            .regs = [_]u8{ 0x1, @bitCast(FlagRegister.default().set_zero(1).set_carry(1).set_half_curry(1)), 0x0, 0x13, 0x00, 0xD8, 0x01, 0x4D },
             .pc = 0x100,
             .sp = 0xFFFE,
         };

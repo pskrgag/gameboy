@@ -66,7 +66,7 @@ const condition = [_]u8{
 pub const Cpu = struct {
     registers: RegisterFile,
     memory: Memory,
-    off: i8, // Hack to make add_pc work as function pointer
+    off: u16, // Hack to make add_pc work as function pointer
     cond: bool,
 
     const Self = @This();
@@ -113,7 +113,7 @@ pub const Cpu = struct {
         const res = @as(u32, val) + @as(u32, val);
         const new_flags = FlagRegister
             .default()
-            .set_zero(@intFromBool(res == 0))
+            .set_zero(@intFromBool((res & 0xFFFF) == 0))
             .set_carry(@intFromBool(res > 0xffff))
             .set_half_curry(@intFromBool(((val & 0xFFF) + (val1 & 0xFFF)) > 0xFFF));
 
@@ -173,7 +173,7 @@ pub const Cpu = struct {
         const res = @as(u16, val) + @as(u16, a);
         const new_flags = FlagRegister
             .default()
-            .set_zero(@intFromBool(res == 0))
+            .set_zero(@intFromBool((res & 0xFF) == 0))
             .set_carry(@intFromBool(res > 0xff))
             .set_half_curry(@intFromBool(((a & 0xF) + (val & 0xF)) > 0xF));
 
@@ -189,7 +189,7 @@ pub const Cpu = struct {
         const res = @as(u16, val) + @as(u16, a) + @as(u16, carry);
         const new_flags = FlagRegister
             .default()
-            .set_zero(@intFromBool(res == 0))
+            .set_zero(@intFromBool((res & 0xFF) == 0))
             .set_carry(@intFromBool(res > 0xff))
             .set_half_curry(@intFromBool(((a & 0xF) + (val & 0xF) + carry) > 0xF));
 
@@ -233,10 +233,10 @@ pub const Cpu = struct {
     fn alu_inc(self: *Self, val: u8) u8 {
         const res = val +% 1;
 
-        const new_flags = FlagRegister
-            .default()
+        const new_flags = self.registers.read_flags()
             .set_zero(@intFromBool(res == 0))
-            .set_half_curry(@intFromBool((val & 0xf) + 1 > 0xf));
+            .set_half_curry(@intFromBool((val & 0xf) + 1 > 0xf))
+            .set_sub(0);
 
         self.registers.update_flags(new_flags);
         return res;
@@ -259,8 +259,7 @@ pub const Cpu = struct {
     fn alu_dec(self: *Self, val: u8) u8 {
         const res = val -% 1;
 
-        const new_flags = FlagRegister
-            .default()
+        const new_flags = self.registers.read_flags()
             .set_zero(@intFromBool(res == 0))
             .set_sub(1)
             .set_half_curry(@intFromBool((val & 0xF) == 0x0));
@@ -567,10 +566,8 @@ pub const Cpu = struct {
     }
 
     fn call(self: *Self) void {
-        const val = self.advance_pc16();
-
         self.stack_push(self.registers.pc);
-        self.registers.pc = val;
+        self.registers.pc = self.off;
     }
 
     fn ld(self: *Self, reg: SingleRegister, val: u8) void {
@@ -596,13 +593,13 @@ pub const Cpu = struct {
     }
 
     fn add_pc(self: *Self) void {
-        self.registers.pc +%= @as(u16, @bitCast(@as(i16, @intCast(self.off))));
+        self.registers.pc +%= self.off;
     }
 
     pub fn tick(self: *Self) void {
         const ticks = self.execute_one();
         std.debug.print("Ticks {x}\n", .{ticks});
-        self.memory.tick(ticks);
+        self.memory.tick(ticks * 4);
     }
 
     pub fn execute_one(self: *Self) u8 {
@@ -738,7 +735,7 @@ pub const Cpu = struct {
             0xCB => |_| {
                 next = self.advance_pc();
 
-                std.debug.print("--{x}\n", .{next});
+                // std.debug.print("--{x}\n", .{next});
                 switch (next) {
                     0x37 => |_| self.alu_swap_nibble_reg(SingleRegister.A),
                     0x30 => |_| self.alu_swap_nibble_reg(SingleRegister.B),
@@ -1107,28 +1104,28 @@ pub const Cpu = struct {
             0x20 => {
                 const offset: i8 = @bitCast(self.advance_pc());
 
-                self.off = @bitCast(@as(i8, @intCast(offset)));
+                self.off = @bitCast(@as(i16, @intCast(offset)));
                 self.if_zero(Self.add_pc, 0);
             },
             // JR Z
             0x28 => {
                 const offset: i8 = @bitCast(self.advance_pc());
 
-                self.off = @bitCast(@as(i8, @intCast(offset)));
+                self.off = @bitCast(@as(i16, @intCast(offset)));
                 self.if_zero(Self.add_pc, 1);
             },
             // JR NC
             0x30 => {
                 const offset: i8 = @bitCast(self.advance_pc());
 
-                self.off = @bitCast(@as(i8, @intCast(offset)));
+                self.off = @bitCast(@as(i16, @intCast(offset)));
                 self.if_carry(Self.add_pc, 0);
             },
             // JR C
             0x38 => {
                 const offset: i8 = @bitCast(self.advance_pc());
 
-                self.off = @bitCast(@as(i8, @intCast(offset)));
+                self.off = @bitCast(@as(i16, @intCast(offset)));
                 self.if_carry(Self.add_pc, 1);
             },
             // JP (HL)
@@ -1158,17 +1155,34 @@ pub const Cpu = struct {
             },
 
             // CALL
-            0xCD => self.call(),
+            0xCD => {
+                const val = self.advance_pc16();
+
+                self.off = val;
+                self.call();
+            },
             0xC4 => {
+                const val = self.advance_pc16();
+
+                self.off = val;
                 self.if_zero(Self.call, 0);
             },
             0xCC => {
+                const val = self.advance_pc16();
+
+                self.off = val;
                 self.if_zero(Self.call, 1);
             },
             0xD4 => {
+                const val = self.advance_pc16();
+
+                self.off = val;
                 self.if_carry(Self.call, 0);
             },
             0xDC => {
+                const val = self.advance_pc16();
+
+                self.off = val;
                 self.if_carry(Self.call, 1);
             },
 

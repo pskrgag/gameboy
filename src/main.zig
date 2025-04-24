@@ -13,8 +13,6 @@ pub fn main() !void {
     const code = try file.readToEndAlloc(allocator, 35000);
     defer allocator.free(code);
 
-    std.debug.print("LEN {d}\n", .{code.len});
-
     var gb = Gameboy.default(code);
     defer gb.deinit();
 

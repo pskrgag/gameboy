@@ -296,6 +296,7 @@ pub const Ppu = struct {
         if (!self.is_enabled()) {
             return;
         }
+        // std.debug.print("gpu tick {x} {x} {x} {x}\n", .{ ticks, self.y, @intFromEnum(self.state), self.ticks });
 
         for (0..ticks) |_| {
             self.ticks +%= 1;
@@ -351,12 +352,11 @@ pub const Ppu = struct {
                 PpuState.VBlank => {
                     // Each line takes 114 cpu cycles. V-Blank takes 10 lines
                     if (self.ticks == 456) {
-                        self.y += 1;
+                        self.y = (self.y + 1) % 154;
                         self.ticks -= 456;
                     }
 
-                    if (self.y == 153) {
-                        self.y = 0;
+                    if (self.y == 0) {
                         self.state = PpuState.OAMScan;
                         std.debug.assert(self.next_pixel.count == 0);
                     }
@@ -391,13 +391,29 @@ pub const Ppu = struct {
         return (self.control & (1 << 7)) != 0;
     }
 
+    fn ppu_off(self: *Self) void {
+        self.ticks = 0;
+        self.state = PpuState.OAMScan;
+        self.y = 0;
+    }
+
+    fn ppu_on(self: *Self) void {
+        self.ticks = 4;
+        self.y = 0;
+        self.state = PpuState.OAMScan;
+    }
+
     pub fn write(self: *Self, addr: u16, val: u8) void {
         switch (addr) {
             0xFF40 => {
-                if (val & (1 << 7) != 0 and !self.is_enabled()) {
-                    // self.ticks = 4;
-                    // self.y = 0;
-                    // self.state = PpuState.OAMScan;
+                const request = val & (1 << 7) != 0;
+
+                if (request and !self.is_enabled()) {
+                    // Turn on
+                    self.ppu_on();
+                } else if (!request and self.is_enabled()) {
+                    // Turn off
+                    self.ppu_off();
                 }
 
                 self.control = val;

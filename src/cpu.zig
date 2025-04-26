@@ -68,15 +68,17 @@ pub const Cpu = struct {
     memory: Memory,
     off: u16, // Hack to make add_pc work as function pointer
     cond: bool,
+    debug: bool,
 
     const Self = @This();
 
-    pub fn default(rom: []u8) Self {
+    pub fn default(rom: []u8, debug: bool) Self {
         return Self{
             .registers = RegisterFile.default(),
             .memory = Memory.new(rom),
             .off = 0,
             .cond = false,
+            .debug = debug,
         };
     }
 
@@ -111,11 +113,10 @@ pub const Cpu = struct {
     fn alu_add16(self: *Self, val1: u16, val: u16) u16 {
         // res[0] is a result, while res[1] is overflow indicator
         const res = @as(u32, val) + @as(u32, val);
-        const new_flags = FlagRegister
-            .default()
-            .set_zero(@intFromBool((res & 0xFFFF) == 0))
+        const new_flags = self.registers.read_flags()
             .set_carry(@intFromBool(res > 0xffff))
-            .set_half_curry(@intFromBool(((val & 0xFFF) + (val1 & 0xFFF)) > 0xFFF));
+            .set_half_curry(@intFromBool(((val & 0xFFF) + (val1 & 0xFFF)) > 0xFFF))
+            .set_sub(0);
 
         self.registers.update_flags(new_flags);
 
@@ -328,23 +329,24 @@ pub const Cpu = struct {
         var flags = self.registers.read_flags();
         var offset: u8 = 0;
 
-        if ((flags.sub == 0 and (val & 0xF > 9)) or flags.half_carry == 1) {
-            offset |= 0x6;
-        }
+        if (flags.carry != 0)
+            offset = 0x60;
 
-        if ((flags.sub == 0 and (val > 0x99)) or flags.carry == 1) {
-            offset |= 0x60;
-            flags.carry = 1;
-        }
+        if (flags.half_carry != 0)
+            offset |= 0x06;
 
-        if (flags.sub == 2) {
+        if (flags.sub == 1) {
             val -%= offset;
         } else {
+            if (val & 0x0F > 0x09)
+                offset |= 0x06;
+            if (val > 0x99)
+                offset |= 0x60;
+
             val +%= offset;
         }
 
-        flags.zero = @intFromBool(val == 0);
-
+        flags = flags.set_zero(@intFromBool(val == 0)).set_half_curry(0).set_carry(@intFromBool(offset >= 0x60));
         self.registers.update_flags(flags);
         self.registers.assign_single(SingleRegister.A, val);
     }
@@ -514,7 +516,7 @@ pub const Cpu = struct {
 
     fn alu_srl_reg(self: *Self, reg: SingleRegister) void {
         const r = self.registers.read_single(reg);
-        const res = self.alu_sra(r);
+        const res = self.alu_srl(r);
 
         self.registers.assign_single(reg, res);
     }
@@ -540,6 +542,7 @@ pub const Cpu = struct {
     fn stack_pop(self: *Self) u16 {
         const val = self.memory_read_u16(self.registers.sp);
 
+        // std.debug.print("POP VAL {x}", .{val});
         self.registers.sp += 2;
         return val;
     }
@@ -596,9 +599,16 @@ pub const Cpu = struct {
         self.registers.pc +%= self.off;
     }
 
+    fn set_pc(self: *Self) void {
+        self.registers.pc = self.off;
+    }
+
     pub fn tick(self: *Self) void {
         const ticks = self.execute_one();
-        // std.debug.print("Ticks {x}\n", .{ticks});
+
+        if (self.debug)
+            std.debug.print("Ticks {x}\n", .{ticks});
+
         self.memory.tick(ticks * 4);
     }
 
@@ -609,7 +619,9 @@ pub const Cpu = struct {
         self.off = 0;
         self.cond = false;
 
-        // std.debug.print("Executing {x}", .{i});
+        if (self.debug)
+            std.debug.print("Executing {x}", .{i});
+
         switch (i) {
             // Add instructions
             0x87 => |_| self.alu_add(self.registers.read_single(SingleRegister.A)),
@@ -735,6 +747,7 @@ pub const Cpu = struct {
             0xCB => |_| {
                 next = self.advance_pc();
 
+                // std.debug.print("{x}\n", .{next});
                 switch (next) {
                     0x37 => |_| self.alu_swap_nibble_reg(SingleRegister.A),
                     0x30 => |_| self.alu_swap_nibble_reg(SingleRegister.B),
@@ -868,7 +881,13 @@ pub const Cpu = struct {
             // RRCA
             0x0F => self.alu_rrc_reg(SingleRegister.A),
             // RRA
-            0x1F => self.alu_rr_reg(SingleRegister.A),
+            0x1F => {
+                self.alu_rr_reg(SingleRegister.A);
+
+                // WTF?
+                const flags = self.registers.read_flags();
+                self.registers.update_flags(flags.set_zero(0));
+            },
             // LD imm8
             0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E => {
                 const imm = self.advance_pc();
@@ -1079,7 +1098,13 @@ pub const Cpu = struct {
             0xE5 => self.stack_push(self.registers.read_double(PairRegister.HL)),
 
             // Pop
-            0xF1 => self.registers.assign_double(PairRegister.AF, self.stack_pop()),
+            0xF1 => {
+                var val = self.stack_pop();
+
+                // NOTE: failed test. Need to zero the lower byte of F
+                val &= 0xFFF0;
+                self.registers.assign_double(PairRegister.AF, val);
+            },
             0xC1 => self.registers.assign_double(PairRegister.BC, self.stack_pop()),
             0xD1 => self.registers.assign_double(PairRegister.DE, self.stack_pop()),
             0xE1 => self.registers.assign_double(PairRegister.HL, self.stack_pop()),
@@ -1089,6 +1114,24 @@ pub const Cpu = struct {
                 const val = self.advance_pc16();
 
                 self.registers.pc = val;
+            },
+
+            // JP
+            0xC2 => {
+                self.off = self.advance_pc16();
+                self.if_zero(Self.set_pc, 0);
+            },
+            0xCA => {
+                self.off = self.advance_pc16();
+                self.if_zero(Self.set_pc, 1);
+            },
+            0xD2 => {
+                self.off = self.advance_pc16();
+                self.if_carry(Self.set_pc, 0);
+            },
+            0xDA => {
+                self.off = self.advance_pc16();
+                self.if_carry(Self.set_pc, 1);
             },
 
             // JR
@@ -1127,7 +1170,7 @@ pub const Cpu = struct {
             },
             // JP (HL)
             0xE9 => {
-                const val = self.read_memory_hl();
+                const val = self.registers.read_double(PairRegister.HL);
                 self.registers.pc = val;
             },
 
@@ -1197,8 +1240,10 @@ pub const Cpu = struct {
             },
         }
 
-        // std.debug.print("\n", .{});
-        // self.dump_state(std.debug);
+        if (self.debug) {
+            std.debug.print("\n", .{});
+            self.dump_state(std.debug);
+        }
 
         if (i != 0xCB) {
             if (!self.cond) {

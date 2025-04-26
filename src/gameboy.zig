@@ -49,7 +49,7 @@ pub const Gameboy = struct {
         };
 
         return Self{
-            .cpu = Cpu.default(rom),
+            .cpu = Cpu.default(rom, true),
             .window = window,
             .renderer = renderer,
             .x = 0,

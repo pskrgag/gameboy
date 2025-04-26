@@ -725,6 +725,7 @@ pub const Cpu = struct {
             0x9C => |_| self.alu_subc(self.registers.read_single(SingleRegister.H)),
             0x9D => |_| self.alu_subc(self.registers.read_single(SingleRegister.L)),
             0x9E => |_| self.alu_subc(self.read_memory_hl()),
+            0xDE => |_| self.alu_subc(self.advance_pc()),
 
             // And instructions
             0xA7 => |_| self.alu_and(self.registers.read_single(SingleRegister.A)),
@@ -746,6 +747,7 @@ pub const Cpu = struct {
             0xB4 => |_| self.alu_or(self.registers.read_single(SingleRegister.H)),
             0xB5 => |_| self.alu_or(self.registers.read_single(SingleRegister.L)),
             0xB6 => |_| self.alu_or(self.read_memory_hl()),
+            0xF6 => |_| self.alu_or(self.advance_pc()),
 
             // Xor instructions
             0xAF => |_| self.alu_xor(self.registers.read_single(SingleRegister.A)),

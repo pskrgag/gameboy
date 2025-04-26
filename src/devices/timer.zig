@@ -6,8 +6,8 @@ pub const Timer = struct {
     div: u16,
     tma: u8,
     tac: u8,
-    prev: u1,
     tima: u8,
+    tima_counter: u16,
 
     const Self = @This();
 
@@ -16,8 +16,8 @@ pub const Timer = struct {
             .div = 0,
             .tma = 0,
             .tac = 0,
-            .prev = 0,
             .tima = 0,
+            .tima_counter = 0,
         };
     }
 
@@ -30,26 +30,33 @@ pub const Timer = struct {
         };
     }
 
-    fn timer_is_enabled(self: *Self) u1 {
-        return @intFromBool((self.tac & (1 << 2)) != 0);
+    fn is_enabled(self: *Self) bool {
+        return (self.tac & (1 << 2)) != 0;
     }
 
-    pub fn tick(self: *Self, t_ticks: u8) void {
-        std.debug.assert(t_ticks <= 32);
+    pub fn tick(self: *Self, ticks: u8) bool {
+        var res = false;
+        std.debug.assert(ticks <= 32);
 
-        const ticks = Self.tac_to_t_ticks(@truncate(self.tac));
-        const log = math.log2(ticks) - 1;
-        const log_mask: u16 = @as(u16, 1) << @truncate(log);
+        const step = Self.tac_to_t_ticks(@truncate(self.tac));
 
-        self.div +%= t_ticks;
-        const new = @intFromBool((self.div & log_mask) != 0) & self.timer_is_enabled();
+        self.div +%= ticks;
 
-        if ((self.prev == 1) and (new == 0)) {
-            self.tima += 1;
-            @panic("helo");
+        if (self.is_enabled()) {
+            self.tima_counter += ticks;
+
+            if (self.tima_counter >= step) {
+                self.tima_counter -= step;
+                self.tima +%= 1;
+
+                if (self.tima == 0) {
+                    self.tima = self.tma;
+                    res = true;
+                }
+            }
         }
 
-        self.prev = new;
+        return res;
     }
 
     pub fn write(self: *Self, addr: u16, val: u8) void {
@@ -57,7 +64,11 @@ pub const Timer = struct {
             // Write to div register resets it
             0xFF04 => self.div = 0,
             0xFF07 => self.tac = val,
-            else => @panic("Wrong address\n"),
+            0xFF05 => self.tima = val,
+            else => {
+                std.debug.print("{x}\n", .{addr});
+                @panic("Wrong address\n");
+            },
         }
     }
 };

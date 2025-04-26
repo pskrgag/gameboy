@@ -9,8 +9,8 @@ const ROM_BASE = 0x0;
 const INTERNAL_RAM_BASE = 0xFF80;
 const INTERNAL_RAM_SIZE = 0xFFFF - 0xFF80;
 
-const INTERNAL_RAM8K_BASE = 0xC000;
-const INTERNAL_RAM8K_SIZE = 0x2000;
+const INTERNAL_RAM8K_BASE = 0xA000;
+const INTERNAL_RAM8K_SIZE = 0x4000;
 
 const VIDEO_RAM_BASE = 0x8000;
 const VIDEO_RAM_SIZE = 0x2000;
@@ -47,6 +47,22 @@ pub const Memory = struct {
 
     const Self = @This();
 
+    pub const IrqSource = enum(u8) {
+        VBlank = 0,
+        LCD = 1,
+        Timer = 2,
+        Serial = 3,
+        Joypad = 4,
+    };
+
+    pub fn is_irq_enabled(self: *Self, source: IrqSource) bool {
+        return self.ie & (1 << @intFromEnum(source)) != 0;
+    }
+
+    pub fn is_irq_requesed(self: *Self, source: IrqSource) bool {
+        return self.iff & (1 << @intFromEnum(source)) != 0;
+    }
+
     pub fn default() Self {
         return Self{
             .rom = [_]u8{0} ** (ROM_SIZE),
@@ -60,9 +76,12 @@ pub const Memory = struct {
         };
     }
 
-    pub fn tick(self: *Self, tcycles: u8) void {
-        self.timer.tick(tcycles);
-        self.ppu.tick(tcycles);
+    pub fn tick(self: *Self, mcycles: u8) void {
+        if (self.timer.tick(mcycles)) {
+            self.iff |= (1 << @intFromEnum(IrqSource.Timer));
+        }
+
+        self.ppu.tick(mcycles);
     }
 
     pub fn new(rom: []u8) Self {
@@ -86,15 +105,15 @@ pub const Memory = struct {
 
                 @memcpy(self.ram[idx .. idx + type_size], std.mem.asBytes(&val));
             },
-            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE => {
+            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE - 1 => {
                 const idx = addr - INTERNAL_RAM8K_BASE;
 
                 @memcpy(self.ram8k[idx .. idx + type_size], std.mem.asBytes(&val));
             },
-            VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE, 0xFF68, 0xFF69, 0xFF4F => {
+            VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE - 1, 0xFF68, 0xFF69, 0xFF4F => {
                 self.ppu.write(addr, @truncate(val));
             },
-            TIMER_BASE...TIMER_BASE + TIMER_SIZE => {
+            TIMER_BASE...TIMER_BASE + TIMER_SIZE - 1 => {
                 self.timer.write(addr, @truncate(val));
             },
             LCD_BASE...LCD_BASE + LCD_SIZE => self.ppu.write(addr, @truncate(val)),
@@ -129,11 +148,11 @@ pub const Memory = struct {
 
                 @memcpy(std.mem.asBytes(&res), self.ram8k[idx .. idx + type_size]);
             },
-            VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE => {
+            VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE - 1 => {
                 res = self.ppu.read(addr);
             },
             IE_REG => res = self.ie,
-            IF_REG => res = self.iff,
+            IF_REG => res = self.iff | 0b11100000,
             SOUND_BASE...SOUND_BASE + SOUND_SIZE => {
                 res = 0;
             },

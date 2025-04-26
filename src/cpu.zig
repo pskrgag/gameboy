@@ -69,6 +69,8 @@ pub const Cpu = struct {
     off: u16, // Hack to make add_pc work as function pointer
     cond: bool,
     debug: bool,
+    ei: bool,
+    halted: bool,
 
     const Self = @This();
 
@@ -79,6 +81,8 @@ pub const Cpu = struct {
             .off = 0,
             .cond = false,
             .debug = debug,
+            .ei = true,
+            .halted = false,
         };
     }
 
@@ -112,14 +116,13 @@ pub const Cpu = struct {
 
     fn alu_add16(self: *Self, val1: u16, val: u16) u16 {
         // res[0] is a result, while res[1] is overflow indicator
-        const res = @as(u32, val) + @as(u32, val);
+        const res = @as(u32, val) + @as(u32, val1);
         const new_flags = self.registers.read_flags()
             .set_carry(@intFromBool(res > 0xffff))
             .set_half_curry(@intFromBool(((val & 0xFFF) + (val1 & 0xFFF)) > 0xFFF))
             .set_sub(0);
 
         self.registers.update_flags(new_flags);
-
         return @truncate(res);
     }
 
@@ -603,11 +606,54 @@ pub const Cpu = struct {
         self.registers.pc = self.off;
     }
 
-    pub fn tick(self: *Self) void {
-        const ticks = self.execute_one();
+    fn handle_irq(self: *Self) u8 {
+        // It should be possible to handle irq while halted
+        if ((self.ei or self.halted) == false)
+            return 0;
 
-        if (self.debug)
-            std.debug.print("Ticks {x}\n", .{ticks});
+        const fired = self.memory.iff & self.memory.ie;
+        if (fired == 0)
+            return 0;
+
+        const isr_base: u16 = 0x0040;
+        const irq_num = 7 - @clz(fired);
+        std.debug.assert(irq_num < 5);
+
+        // Jump to ISR
+        //
+        // NOTE: if EI is set to false, then don't jump to ISR, but continue execution
+        // from the old pc
+        if (self.ei == true) {
+            // Push current PC to stack
+            const pc = self.registers.pc;
+            self.stack_push(pc);
+
+            // Clear IFF
+            self.memory.iff &= ~(@as(u8, 1) << @truncate(irq_num));
+
+            // Jump to ISR
+            self.registers.pc = isr_base + @as(u16, irq_num) * 8;
+
+            // Disable irqs
+            self.ei = false;
+        }
+
+        // Reset halted mode
+        self.halted = false;
+        return 4;
+    }
+
+    pub fn tick(self: *Self) void {
+        var ticks = self.handle_irq();
+
+        if (ticks == 0 and !self.halted) {
+            ticks += self.execute_one();
+            if (self.debug)
+                std.debug.print("Ticks {x}\n", .{ticks});
+        }
+
+        if (self.halted and ticks == 0)
+            ticks = 1;
 
         self.memory.tick(ticks * 4);
     }
@@ -872,7 +918,7 @@ pub const Cpu = struct {
             // Nop
             0x00 => {},
             // Halt
-            0x76 => @panic("HALT"),
+            0x76 => self.halted = true,
 
             // RLCA
             0x07 => self.alu_rlc_reg(SingleRegister.A),
@@ -1047,12 +1093,14 @@ pub const Cpu = struct {
                 const a = self.registers.read_single(SingleRegister.A);
                 const nn = self.advance_pc();
 
+                // std.debug.print(" {x} ", .{nn});
                 self.memory_write_u8(0xFF00 | @as(u16, nn), a);
             },
             0xF0 => {
                 const nn = self.advance_pc();
                 const val = self.memory_read_u8(0xFF00 | @as(u16, nn));
 
+                // std.debug.print(" {x} ", .{nn});
                 self.registers.assign_single(SingleRegister.A, val);
             },
             0x01 => {
@@ -1079,11 +1127,16 @@ pub const Cpu = struct {
                 self.registers.sp = self.registers.read_double(PairRegister.HL);
             },
             0xF8 => {
-                const n = self.advance_pc();
+                const raw: i8 = @bitCast(self.advance_pc());
+                const n: u16 = @bitCast(@as(i16, @intCast(raw)));
                 const sp = self.registers.sp;
-                const res = self.alu_add16(@as(u16, n), sp);
+                const res = self.alu_add16(n, sp);
 
                 self.registers.assign_double(PairRegister.HL, res);
+
+                // NOTE alu_add16 does not reset zero flag, while here it should be
+                // reset
+                self.registers.update_flags(self.registers.read_flags().set_zero(0));
             },
             0x08 => {
                 const val = self.advance_pc16();
@@ -1175,7 +1228,8 @@ pub const Cpu = struct {
             },
 
             // DI
-            0xF3 => {},
+            0xF3 => self.ei = false,
+            0xFB => self.ei = true,
 
             // Ret
             0xC9 => self.ret(),
@@ -1259,6 +1313,7 @@ pub const Cpu = struct {
 
     pub fn dump_state(self: *Self, writer: anytype) void {
         self.registers.dump_state(writer);
+        writer.print(" {}\n", .{self.ei});
     }
 };
 

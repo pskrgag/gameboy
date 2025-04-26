@@ -159,7 +159,7 @@ pub const RegisterFile = struct {
     }
 
     pub fn dump_state(self: *Self, writer: anytype) void {
-        writer.print("Registers {{ a: {x}, f: {x}, b: {x}, c: {x}, d: {x}, e: {x}, h: {x}, l: {x}, pc: {x}, sp: {x} }}\n", .{
+        writer.print("Registers {{ a: {x}, f: {x}, b: {x}, c: {x}, d: {x}, e: {x}, h: {x}, l: {x}, pc: {x}, sp: {x} }}", .{
             self.regs[0],
             self.regs[1],
             self.regs[2],

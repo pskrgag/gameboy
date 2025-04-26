@@ -1242,6 +1242,11 @@ pub const Cpu = struct {
             0xF3 => self.ei = false,
             0xFB => self.ei = true,
 
+            // Reti
+            0xD9 => {
+                self.ret();
+                self.ei = true;
+            },
             // Ret
             0xC9 => self.ret(),
             0xC0 => {
@@ -1299,6 +1304,41 @@ pub const Cpu = struct {
             0xBD => self.alu_cp(self.registers.read_single(SingleRegister.L)),
             0xBE => self.alu_cp(self.read_memory_hl()),
             0xFE => self.alu_cp(self.advance_pc()),
+
+            // Rst
+            0xC7 => {
+                self.stack_push(self.registers.pc);
+                self.registers.pc = 0;
+            },
+            0xCF => {
+                self.stack_push(self.registers.pc);
+                self.registers.pc = 0x8;
+            },
+            0xD7 => {
+                self.stack_push(self.registers.pc);
+                self.registers.pc = 0x10;
+            },
+            0xDF => {
+                self.stack_push(self.registers.pc);
+                self.registers.pc = 0x18;
+            },
+            0xE7 => {
+                self.stack_push(self.registers.pc);
+                self.registers.pc = 0x20;
+            },
+            0xEF => {
+                self.stack_push(self.registers.pc);
+                self.registers.pc = 0x28;
+            },
+            0xF7 => {
+                self.stack_push(self.registers.pc);
+                self.registers.pc = 0x30;
+            },
+            0xFF => {
+                self.stack_push(self.registers.pc);
+                self.registers.pc = 0x38;
+            },
+
             else => {
                 std.debug.print("Unknown opcode {x}\n", .{i});
                 @panic("");

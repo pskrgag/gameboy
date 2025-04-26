@@ -9,9 +9,6 @@ const VRAM_SIZE = 0x2000;
 const OAM_BASE = 0xFE00;
 const OAM_SIZE = 40 * 4;
 
-const SCREEN_WIDTH = 140;
-const SCREEN_HEIGTH = 160;
-
 const OAMEntry = packed struct {
     // Y position
     y: u8,
@@ -152,17 +149,20 @@ const Fetcher = struct {
         self.tile_line = ppu.y % 8;
         self.tile_idx = 0;
         self.state = FetcherState.ReadID;
+        self.fifo = Fifo.default();
+
+        const y = ppu.y;
 
         // Each line in background map consists of 32 bytes (because it's 32x32)
         // ppu.y is line number and each tile is 8 bytes long.
         //
         // self.addr now contains base address for current tile line.
-        self.addr = 0x9800 + (@as(u16, ppu.y) / 8) * 32;
+        self.addr = 0x9800 + (@as(u16, y) / 8) * 32;
     }
 
     fn read_data(self: *Self, low: bool) void {
         const ppu = self.ppu orelse @panic("");
-        const data = ppu.get_tile_byte(self.tile_id, self.tile_line);
+        const data = ppu.get_tile_byte(self.tile_id, self.tile_line, low);
 
         for (0..8) |bit| {
             const cur_bit = data & (@as(u8, 1) << @truncate(bit));
@@ -239,7 +239,7 @@ pub const Ppu = struct {
     pub const Black = Color{ .r = 15, .g = 56, .b = 15 };
     pub const ColorArray = [_]Color{ White, LightGreen, DarkGreen, Black };
 
-    const PpuState = enum(u8) {
+    pub const PpuState = enum(u8) {
         OAMScan = 2,
         PixelTransfer = 3,
         HBlank = 0,
@@ -263,7 +263,7 @@ pub const Ppu = struct {
             .scy = 0,
             .palette = 0,
             .oam = [_]OAMEntry{OAMEntry.default()} ** 40,
-            .ticks = 0,
+            .ticks = 4,
             .updated = false,
             .fetcher = Fetcher.default(),
             .next_pixel = ArrayList(u8).init(allocator),
@@ -292,15 +292,26 @@ pub const Ppu = struct {
     }
 
     pub fn pop_pixel(self: *Self) ?u8 {
-        return self.next_pixel.pop();
+        if (self.next_pixel.items.len == 0)
+            return null;
+
+        const slice = self.next_pixel.toOwnedSlice() catch |err| {
+            std.debug.print("{any}", .{err});
+            @panic("");
+        };
+        const res = slice[0];
+
+        self.next_pixel.appendSlice(slice[1..]) catch |err| {
+            std.debug.print("{any}", .{err});
+            @panic("");
+        };
+        return res;
     }
 
     pub fn tick(self: *Self, ticks: u8) void {
         if (!self.is_enabled()) {
             return;
         }
-
-        std.debug.print("gpu tick {x} {x} {x}\n", .{ ticks, self.y, @intFromEnum(self.state) });
 
         for (0..ticks) |_| {
             self.ticks +%= 1;
@@ -328,40 +339,49 @@ pub const Ppu = struct {
                         std.debug.print("{any}", .{err});
                         @panic("");
                     };
+
                     self.next_pixel.append(data) catch |err| {
                         std.debug.print("{any}", .{err});
                         @panic("");
                     };
 
                     if (self.x == 160) {
-                        // std.debug.assert(self.ticks >= (20 + 172) and self.ticks <= (20 + 289));
                         self.state = PpuState.HBlank;
+                        self.x = 0;
+                        continue;
                     }
                 },
                 PpuState.HBlank => {
-                    if (self.ticks >= 456) {
+                    if (self.ticks == 456) {
                         self.ticks -= 456;
                         self.y = (self.y + 1) % 154;
 
                         // Goto VBlank mode
                         if (self.y == 144) {
                             self.state = PpuState.VBlank;
+                        } else {
+                            self.state = PpuState.OAMScan;
                         }
                     }
                 },
                 PpuState.VBlank => {
                     // Each line takes 114 cpu cycles. V-Blank takes 10 lines
-                    if (self.ticks >= 456 * 10) {
-                        self.ticks -= 456 * 10;
+                    if (self.ticks == 456) {
+                        self.y += 1;
+                        self.ticks -= 456;
+                    }
+
+                    if (self.y == 153) {
                         self.y = 0;
                         self.state = PpuState.OAMScan;
+                        std.debug.assert(self.next_pixel.items.len == 0);
                     }
                 },
             }
         }
     }
 
-    fn get_tile_byte(self: *Self, idx: u8, line: u8) u8 {
+    fn get_tile_byte(self: *Self, idx: u8, line: u8, low: bool) u8 {
         const is_set = (self.control & (1 << 4)) != 0;
 
         std.debug.assert(line < 8);
@@ -373,11 +393,11 @@ pub const Ppu = struct {
         // In 8000 method idx is used as positive integer, however in 0x8800 method it's used
         // as signed idx.
         if (is_set) {
-            const off = (0x8000 - VRAM_BASE) + @as(usize, idx) * 16 + line * 2;
+            const off = (0x8000 - VRAM_BASE) + @as(usize, idx) * 16 + line * 2 + @intFromBool(!low);
 
             return self.vram[off];
         } else {
-            const off = (0x9000 - VRAM_BASE) + @as(i16, @as(i8, @bitCast(idx))) * 16 + line * 2;
+            const off = (0x9000 - VRAM_BASE) + @as(i16, @as(i8, @bitCast(idx))) * 16 + line * 2 + @intFromBool(!low);
 
             return self.vram[@intCast(off)];
         }
@@ -391,8 +411,9 @@ pub const Ppu = struct {
         switch (addr) {
             0xFF40 => {
                 if (val & (1 << 7) != 0 and !self.is_enabled()) {
-                    self.ticks = 4;
-                    self.state = PpuState.OAMScan;
+                    // self.ticks = 4;
+                    // self.y = 0;
+                    // self.state = PpuState.OAMScan;
                 }
 
                 self.control = val;
@@ -427,7 +448,10 @@ pub const Ppu = struct {
             0xFF47 => return self.palette,
             0xFF44 => return self.y,
             VRAM_BASE...VRAM_BASE + VRAM_SIZE => return self.vram[addr - VRAM_BASE],
-            else => @panic(""),
+            else => {
+                std.debug.print("{x}\n", .{addr});
+                @panic("");
+            },
         }
     }
 };

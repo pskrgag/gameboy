@@ -3,8 +3,8 @@ const Cpu = @import("cpu.zig").Cpu;
 const SDL = @import("sdl2");
 const Ppu = @import("devices/gpu.zig").Ppu;
 
-const WINDOW_HEIGTH = 160;
-const WINDOW_WIDTH = 140;
+const WINDOW_HEIGTH = 144;
+const WINDOW_WIDTH = 160;
 
 const TILE_SCALE = 10;
 
@@ -17,6 +17,7 @@ pub const Gameboy = struct {
     renderer: SDL.Renderer,
     y: u8,
     x: u8,
+    pixels: u16,
 
     const Self = @This();
 
@@ -53,6 +54,7 @@ pub const Gameboy = struct {
             .renderer = renderer,
             .x = 0,
             .y = 0,
+            .pixels = 0,
         };
     }
 
@@ -63,9 +65,18 @@ pub const Gameboy = struct {
     }
 
     pub fn tick(self: *Self) !void {
+        self.cpu.tick();
+
         var next = self.cpu.memory.ppu.pop_pixel();
 
         while (next != null) {
+            std.debug.assert(self.cpu.memory.ppu.y == self.y);
+
+            // if (self.x == 0 and self.y == 0)
+            //     std.debug.print("START\n", .{});
+
+            // std.debug.print("pop -- {x}\n", .{next.?});
+
             const color = Ppu.ColorArray[next.?];
             const rect =
                 SDL.Rectangle{
@@ -83,13 +94,39 @@ pub const Gameboy = struct {
             if (self.x == WINDOW_WIDTH) {
                 self.y = (self.y + 1) % WINDOW_HEIGTH;
                 self.x = 0;
+            }
+
+            self.pixels += 1;
+
+            if (self.pixels == (WINDOW_HEIGTH * WINDOW_WIDTH)) {
                 self.renderer.present();
+                self.pixels = 0;
+
+                // for (0..32) |i| {
+                //     std.debug.print("{x}: ", .{i});
+                //
+                //     for (0..32) |j| {
+                //         std.debug.print("{x} ", .{self.cpu.memory.ppu.read(0x9800 + @as(u16, @truncate(j)) + @as(u16, @truncate(i)) * 32)});
+                //     }
+                //
+                //     std.debug.print("\n", .{});
+                // }
+                // std.debug.print("\n", .{});
+                // std.debug.print("tiles\n", .{});
+                //
+                // for (0..50) |i| {
+                //     std.debug.print("{x}: {{", .{i});
+                //     for (0..16) |j| {
+                //         std.debug.print("0x{x}, ", .{self.cpu.memory.ppu.read(0x8000 + @as(u16, @truncate(j)) + @as(u16, @truncate(i)) * 16)});
+                //     }
+                //     std.debug.print("}}\n", .{});
+                // }
             }
 
             next = self.cpu.memory.ppu.pop_pixel();
         }
 
-        self.cpu.tick();
+        std.debug.assert(self.cpu.memory.ppu.x == self.x);
     }
 
     pub fn deinit(self: *Self) void {

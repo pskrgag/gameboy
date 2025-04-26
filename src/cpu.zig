@@ -598,7 +598,7 @@ pub const Cpu = struct {
 
     pub fn tick(self: *Self) void {
         const ticks = self.execute_one();
-        std.debug.print("Ticks {x}\n", .{ticks});
+        // std.debug.print("Ticks {x}\n", .{ticks});
         self.memory.tick(ticks * 4);
     }
 
@@ -609,7 +609,7 @@ pub const Cpu = struct {
         self.off = 0;
         self.cond = false;
 
-        std.debug.print("Executing {x}", .{i});
+        // std.debug.print("Executing {x}", .{i});
         switch (i) {
             // Add instructions
             0x87 => |_| self.alu_add(self.registers.read_single(SingleRegister.A)),
@@ -735,7 +735,6 @@ pub const Cpu = struct {
             0xCB => |_| {
                 next = self.advance_pc();
 
-                // std.debug.print("--{x}\n", .{next});
                 switch (next) {
                     0x37 => |_| self.alu_swap_nibble_reg(SingleRegister.A),
                     0x30 => |_| self.alu_swap_nibble_reg(SingleRegister.B),
@@ -858,9 +857,7 @@ pub const Cpu = struct {
             },
 
             // Nop
-            0x00 => {
-                // self.cycles += 4;
-            },
+            0x00 => {},
             // Halt
             0x76 => @panic("HALT"),
 
@@ -883,7 +880,7 @@ pub const Cpu = struct {
                     0x1E => self.registers.assign_single(SingleRegister.E, imm),
                     0x26 => self.registers.assign_single(SingleRegister.H, imm),
                     0x2E => self.registers.assign_single(SingleRegister.L, imm),
-                    else => @panic("Unknown opcode"),
+                    else => unreachable,
                 }
             },
             // LR reg,reg
@@ -1135,9 +1132,7 @@ pub const Cpu = struct {
             },
 
             // DI
-            0xF3 => {
-                // self.cycles += 4;
-            },
+            0xF3 => {},
 
             // Ret
             0xC9 => self.ret(),
@@ -1202,8 +1197,8 @@ pub const Cpu = struct {
             },
         }
 
-        std.debug.print("\n", .{});
-        self.dump_state(std.debug);
+        // std.debug.print("\n", .{});
+        // self.dump_state(std.debug);
 
         if (i != 0xCB) {
             if (!self.cond) {

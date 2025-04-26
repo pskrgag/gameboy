@@ -1,7 +1,7 @@
 const std = @import("std");
 const SDL = @import("sdl2");
 const Color = @import("sdl2").Color;
-const ArrayList = std.ArrayList;
+const LinearFifo = std.fifo.LinearFifo;
 
 const VRAM_BASE = 0x8000;
 const VRAM_SIZE = 0x2000;
@@ -230,7 +230,7 @@ pub const Ppu = struct {
     ticks: usize,
     updated: bool,
     fetcher: Fetcher,
-    next_pixel: ArrayList(u8),
+    next_pixel: LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = 32 }),
 
     const Self = @This();
     pub const White = Color{ .r = 155, .g = 188, .b = 15 };
@@ -250,9 +250,6 @@ pub const Ppu = struct {
     const BACKGROUND_SIZE = 0x9bff - 0x9800 + 1;
 
     pub fn default() Self {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        const allocator = gpa.allocator();
-
         return .{
             .vram = [_]u8{0} ** (VRAM_SIZE),
             .state = PpuState.OAMScan,
@@ -266,7 +263,7 @@ pub const Ppu = struct {
             .ticks = 4,
             .updated = false,
             .fetcher = Fetcher.default(),
-            .next_pixel = ArrayList(u8).init(allocator),
+            .next_pixel = LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = 32 }).init(),
         };
     }
 
@@ -292,20 +289,7 @@ pub const Ppu = struct {
     }
 
     pub fn pop_pixel(self: *Self) ?u8 {
-        if (self.next_pixel.items.len == 0)
-            return null;
-
-        const slice = self.next_pixel.toOwnedSlice() catch |err| {
-            std.debug.print("{any}", .{err});
-            @panic("");
-        };
-        const res = slice[0];
-
-        self.next_pixel.appendSlice(slice[1..]) catch |err| {
-            std.debug.print("{any}", .{err});
-            @panic("");
-        };
-        return res;
+        return self.next_pixel.readItem();
     }
 
     pub fn tick(self: *Self, ticks: u8) void {
@@ -340,7 +324,7 @@ pub const Ppu = struct {
                         @panic("");
                     };
 
-                    self.next_pixel.append(data) catch |err| {
+                    self.next_pixel.writeItem(data) catch |err| {
                         std.debug.print("{any}", .{err});
                         @panic("");
                     };
@@ -374,7 +358,7 @@ pub const Ppu = struct {
                     if (self.y == 153) {
                         self.y = 0;
                         self.state = PpuState.OAMScan;
-                        std.debug.assert(self.next_pixel.items.len == 0);
+                        std.debug.assert(self.next_pixel.count == 0);
                     }
                 },
             }

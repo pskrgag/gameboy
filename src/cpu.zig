@@ -103,7 +103,7 @@ pub const Cpu = struct {
     }
 
     fn memory_write_u16(self: *Self, off: u16, val: u16) void {
-        self.memory_write_u16(off, val);
+        self.memory.write(u16, off, val);
     }
 
     pub fn memory_read_u8(self: *Self, off: u16) u8 {
@@ -112,6 +112,20 @@ pub const Cpu = struct {
 
     fn memory_read_u16(self: *Self, off: u16) u16 {
         return self.memory.read(u16, off);
+    }
+
+    fn alu_add16_imm(self: *Self, val: u16) u16 {
+        const imm: i8 = @bitCast(self.advance_pc());
+        const im: u16 = @bitCast(@as(i16, imm));
+
+        const flags = FlagRegister.default()
+            .set_sub(0)
+            .set_zero(0)
+            .set_carry(@intFromBool((val & 0xFF) + (im & 0xFF) > 0xFF))
+            .set_half_curry(@intFromBool((val & 0xF) + (im & 0xF) > 0xF));
+
+        self.registers.update_flags(flags);
+        return val +% im;
     }
 
     fn alu_add16(self: *Self, val1: u16, val: u16) u16 {
@@ -768,13 +782,20 @@ pub const Cpu = struct {
             0x09 => |_| self.alu_add16_hl(PairRegister.BC),
             0x19 => |_| self.alu_add16_hl(PairRegister.DE),
             0x29 => |_| self.alu_add16_hl(PairRegister.HL),
+            0x39 => |_| {
+                const hl = self.registers.read_double(PairRegister.HL);
+                const res = self.alu_add16(hl, self.registers.sp);
+
+                self.registers.assign_double(PairRegister.HL, res);
+            },
 
             // Add to SP
-            0xE8 => |_| {
-                const imm = self.memory_read_u8(self.registers.pc);
+            0xE8 => |_| self.registers.sp = self.alu_add16_imm(self.registers.sp),
+            // LDHL SP,n ( hl = sp + n )
+            0xF8 => {
+                const res = self.alu_add16_imm(self.registers.sp);
 
-                self.registers.sp = self.alu_add16(self.registers.sp, imm);
-                self.registers.pc += 1;
+                self.registers.assign_double(PairRegister.HL, res);
             },
 
             // Inc 16bit
@@ -1125,18 +1146,6 @@ pub const Cpu = struct {
             },
             0xF9 => {
                 self.registers.sp = self.registers.read_double(PairRegister.HL);
-            },
-            0xF8 => {
-                const raw: i8 = @bitCast(self.advance_pc());
-                const n: u16 = @bitCast(@as(i16, @intCast(raw)));
-                const sp = self.registers.sp;
-                const res = self.alu_add16(n, sp);
-
-                self.registers.assign_double(PairRegister.HL, res);
-
-                // NOTE alu_add16 does not reset zero flag, while here it should be
-                // reset
-                self.registers.update_flags(self.registers.read_flags().set_zero(0));
             },
             0x08 => {
                 const val = self.advance_pc16();

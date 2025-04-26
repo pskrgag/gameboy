@@ -317,8 +317,8 @@ pub const Cpu = struct {
     }
 
     fn alu_swap_nibble(self: *Self, val: u8) u8 {
-        const high = @as(u16, (val & 0xF)) << @as(u8, 8);
-        const res = high | (@as(u16, val) >> 8);
+        const high = (val & 0xF) << @as(u8, 4);
+        const res = high | (val >> 4);
         const new_flags = FlagRegister
             .default()
             .set_zero(@intFromBool(res == 0));
@@ -674,7 +674,7 @@ pub const Cpu = struct {
 
     pub fn execute_one(self: *Self) u8 {
         const i = self.advance_pc();
-        var next: u8 = 0;
+        var next: u8 = 0xff;
 
         self.off = 0;
         self.cond = false;
@@ -928,13 +928,15 @@ pub const Cpu = struct {
             0x3F => {
                 var flags = self.registers.read_flags();
 
-                flags.carry ^= 1;
+                flags = flags.set_carry(flags.carry ^ 1).set_sub(0).set_half_curry(0);
                 self.registers.update_flags(flags);
             },
             0x37 => {
-                var flags = self.registers.read_flags();
+                const flags = self.registers.read_flags()
+                    .set_carry(1)
+                    .set_sub(0)
+                    .set_half_curry(0);
 
-                flags.carry = 1;
                 self.registers.update_flags(flags);
             },
 
@@ -944,16 +946,30 @@ pub const Cpu = struct {
             0x76 => self.halted = true,
 
             // RLCA
-            0x07 => self.alu_rlc_reg(SingleRegister.A),
+            0x07 => {
+                self.alu_rlc_reg(SingleRegister.A);
+
+                const flags = self.registers.read_flags();
+                self.registers.update_flags(flags.set_zero(0).set_half_curry(0));
+            },
             // RLA
-            0x17 => self.alu_rl_reg(SingleRegister.A),
+            0x17 => {
+                self.alu_rl_reg(SingleRegister.A);
+
+                const flags = self.registers.read_flags();
+                self.registers.update_flags(flags.set_zero(0).set_half_curry(0));
+            },
             // RRCA
-            0x0F => self.alu_rrc_reg(SingleRegister.A),
+            0x0F => {
+                self.alu_rrc_reg(SingleRegister.A);
+
+                const flags = self.registers.read_flags();
+                self.registers.update_flags(flags.set_zero(0).set_half_curry(0));
+            },
             // RRA
             0x1F => {
                 self.alu_rr_reg(SingleRegister.A);
 
-                // WTF?
                 const flags = self.registers.read_flags();
                 self.registers.update_flags(flags.set_zero(0));
             },
@@ -1103,6 +1119,7 @@ pub const Cpu = struct {
             0x2A => {
                 const c = self.read_memory_hl();
 
+                std.debug.print("\n== {d}\n", .{self.registers.read_double(PairRegister.HL)});
                 self.alu_inc16(PairRegister.HL);
                 self.registers.assign_single(SingleRegister.A, c);
             },
@@ -1357,7 +1374,7 @@ pub const Cpu = struct {
                 return condition[i];
             }
         } else {
-            std.debug.assert(next != 0);
+            std.debug.assert(next != 0xFF);
             return double_cycles[next];
         }
     }

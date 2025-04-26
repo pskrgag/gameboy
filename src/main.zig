@@ -7,7 +7,7 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    var file = try std.fs.cwd().openFile("test-roms/cpu_instrs/individual/04-op r,imm.gb", .{});
+    var file = try std.fs.cwd().openFile("test-roms/cpu_instrs/individual/05-op rp.gb", .{});
     defer file.close();
 
     const code = try file.readToEndAlloc(allocator, 35000);

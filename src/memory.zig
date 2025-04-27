@@ -35,6 +35,10 @@ const LCD_SIZE = 8;
 const SERIAL_BEGIN = 0xFF01;
 const SERIAL_SIZE = 2;
 
+// Joypad
+const JOYPAD_BEGIN = 0xFF00;
+const JOYPAD_SIZE = 1;
+
 pub const Memory = struct {
     rom: [ROM_SIZE]u8,
     ram: [INTERNAL_RAM_SIZE]u8,
@@ -117,8 +121,9 @@ pub const Memory = struct {
             LCD_BASE...LCD_BASE + LCD_SIZE => self.ppu.write(addr, @truncate(val)),
             IE_REG => self.ie = @truncate(val),
             IF_REG => self.iff = @truncate(val),
-            SOUND_BASE...SOUND_BASE + SOUND_SIZE => {},
-            SERIAL_BEGIN...SERIAL_BEGIN + SERIAL_SIZE => self.serial.write(addr, @truncate(val)),
+            SOUND_BASE...SOUND_BASE + SOUND_SIZE - 1 => {},
+            JOYPAD_BEGIN...JOYPAD_BEGIN + JOYPAD_SIZE - 1 => {},
+            SERIAL_BEGIN...SERIAL_BEGIN + SERIAL_SIZE - 1 => self.serial.write(addr, @truncate(val)),
             else => {
                 std.debug.print("\nAddr {x}\n", .{addr});
                 @panic("Write to unknown memory");
@@ -149,12 +154,18 @@ pub const Memory = struct {
             VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE - 1 => {
                 res = self.ppu.read(addr);
             },
+            TIMER_BASE...TIMER_BASE + TIMER_SIZE - 1 => {
+                res = self.timer.read(addr);
+            },
             IE_REG => res = self.ie,
             IF_REG => res = self.iff | 0b11100000,
             SOUND_BASE...SOUND_BASE + SOUND_SIZE => {
                 res = 0;
             },
-            LCD_BASE...LCD_BASE + LCD_SIZE => res = self.ppu.read(addr),
+            LCD_BASE...LCD_BASE + LCD_SIZE - 1 => res = self.ppu.read(addr),
+            JOYPAD_BEGIN...JOYPAD_BEGIN + JOYPAD_SIZE - 1 => {
+                res = 0;
+            },
             else => {
                 std.debug.print("Address {x}\n", .{addr});
                 @panic("Read of unknown memory");

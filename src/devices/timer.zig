@@ -5,7 +5,7 @@ const asBytes = std.mem.asBytes;
 pub const Timer = struct {
     div: u16,
     tma: u8,
-    tac: u8,
+    tac: u3,
     tima: u8,
     tima_counter: u16,
 
@@ -21,8 +21,8 @@ pub const Timer = struct {
         };
     }
 
-    fn tac_to_t_ticks(tima: u2) u16 {
-        return switch (tima) {
+    fn tac_to_t_ticks(tac: u3) u16 {
+        return switch (@as(u2, @truncate(tac))) {
             0b00 => 1024,
             0b01 => 16,
             0b10 => 64,
@@ -34,18 +34,18 @@ pub const Timer = struct {
         return (self.tac & (1 << 2)) != 0;
     }
 
-    pub fn tick(self: *Self, ticks: u8) bool {
+    pub fn tick(self: *Self, mcycles: u8) bool {
         var res = false;
-        std.debug.assert(ticks <= 32);
-
-        const step = Self.tac_to_t_ticks(@truncate(self.tac));
+        const ticks = mcycles;
 
         self.div +%= ticks;
 
         if (self.is_enabled()) {
+            const step = Self.tac_to_t_ticks(self.tac);
+
             self.tima_counter += ticks;
 
-            if (self.tima_counter >= step) {
+            while (self.tima_counter >= step) {
                 self.tima_counter -= step;
                 self.tima +%= 1;
 
@@ -59,12 +59,27 @@ pub const Timer = struct {
         return res;
     }
 
+    pub fn read(self: *Self, addr: u16) u8 {
+        switch (addr) {
+            // Only high 8 bits are mapped to to MMIO
+            0xFF04 => return @truncate(self.div >> 8),
+            0xFF05 => return self.tima,
+            0xFF07 => return self.tac,
+            0xFF06 => return self.tma,
+            else => {
+                std.debug.print("{x}\n", .{addr});
+                @panic("Wrong address\n");
+            },
+        }
+    }
+
     pub fn write(self: *Self, addr: u16, val: u8) void {
         switch (addr) {
             // Write to div register resets it
             0xFF04 => self.div = 0,
-            0xFF07 => self.tac = val,
             0xFF05 => self.tima = val,
+            0xFF07 => self.tac = @truncate(val),
+            0xFF06 => self.tma = val,
             else => {
                 std.debug.print("{x}\n", .{addr});
                 @panic("Wrong address\n");

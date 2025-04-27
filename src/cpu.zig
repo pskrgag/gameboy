@@ -551,6 +551,23 @@ pub const Cpu = struct {
         self.registers.update_flags(flags);
     }
 
+    fn alu_test_bit(self: *Self, val: u8, bit: u8) void {
+        const set = (val & (@as(u8, 1) << @truncate(bit))) != 0;
+        const flags = self.registers.read_flags().set_zero(@intFromBool(!set)).set_sub(0).set_half_curry(1);
+
+        self.registers.update_flags(flags);
+    }
+
+    fn alu_reset_bit(self: *Self, val: u8, bit: u8) u8 {
+        _ = self;
+        return val & ~(@as(u8, 1) << @truncate(bit));
+    }
+
+    fn alu_set_bit(self: *Self, val: u8, bit: u8) u8 {
+        _ = self;
+        return val | (@as(u8, 1) << @truncate(bit));
+    }
+
     fn stack_push(self: *Self, val: u16) void {
         self.registers.sp -= 2;
         self.memory.write(u16, self.registers.sp, val);
@@ -674,7 +691,7 @@ pub const Cpu = struct {
 
     pub fn execute_one(self: *Self) u8 {
         const i = self.advance_pc();
-        var next: u8 = 0xff;
+        var next: ?u8 = null;
 
         self.off = 0;
         self.cond = false;
@@ -817,7 +834,7 @@ pub const Cpu = struct {
                 next = self.advance_pc();
 
                 // std.debug.print("{x}\n", .{next});
-                switch (next) {
+                switch (next.?) {
                     0x37 => |_| self.alu_swap_nibble_reg(SingleRegister.A),
                     0x30 => |_| self.alu_swap_nibble_reg(SingleRegister.B),
                     0x31 => |_| self.alu_swap_nibble_reg(SingleRegister.C),
@@ -917,10 +934,334 @@ pub const Cpu = struct {
 
                         self.write_memory_hl(res);
                     },
-                    else => {
-                        std.debug.print("{x}\n", .{next});
-                        @panic("Unknown opcode");
+
+                    // Bit ops
+
+                    // Test
+                    0x40 => self.alu_test_bit(self.registers.read_single(SingleRegister.B), 0),
+                    0x41 => self.alu_test_bit(self.registers.read_single(SingleRegister.C), 0),
+                    0x42 => self.alu_test_bit(self.registers.read_single(SingleRegister.D), 0),
+                    0x43 => self.alu_test_bit(self.registers.read_single(SingleRegister.E), 0),
+                    0x44 => self.alu_test_bit(self.registers.read_single(SingleRegister.H), 0),
+                    0x45 => self.alu_test_bit(self.registers.read_single(SingleRegister.L), 0),
+                    0x46 => {
+                        const val = self.read_memory_hl();
+                        self.alu_test_bit(val, 0);
                     },
+
+                    0x48 => self.alu_test_bit(self.registers.read_single(SingleRegister.B), 1),
+                    0x49 => self.alu_test_bit(self.registers.read_single(SingleRegister.C), 1),
+                    0x4A => self.alu_test_bit(self.registers.read_single(SingleRegister.D), 1),
+                    0x4B => self.alu_test_bit(self.registers.read_single(SingleRegister.E), 1),
+                    0x4C => self.alu_test_bit(self.registers.read_single(SingleRegister.H), 1),
+                    0x4D => self.alu_test_bit(self.registers.read_single(SingleRegister.L), 1),
+                    0x4E => {
+                        const val = self.read_memory_hl();
+                        self.alu_test_bit(val, 1);
+                    },
+
+                    0x50 => self.alu_test_bit(self.registers.read_single(SingleRegister.B), 2),
+                    0x51 => self.alu_test_bit(self.registers.read_single(SingleRegister.C), 2),
+                    0x52 => self.alu_test_bit(self.registers.read_single(SingleRegister.D), 2),
+                    0x53 => self.alu_test_bit(self.registers.read_single(SingleRegister.E), 2),
+                    0x54 => self.alu_test_bit(self.registers.read_single(SingleRegister.H), 2),
+                    0x55 => self.alu_test_bit(self.registers.read_single(SingleRegister.L), 2),
+                    0x56 => {
+                        const val = self.read_memory_hl();
+                        self.alu_test_bit(val, 2);
+                    },
+
+                    0x58 => self.alu_test_bit(self.registers.read_single(SingleRegister.B), 3),
+                    0x59 => self.alu_test_bit(self.registers.read_single(SingleRegister.C), 3),
+                    0x5A => self.alu_test_bit(self.registers.read_single(SingleRegister.D), 3),
+                    0x5B => self.alu_test_bit(self.registers.read_single(SingleRegister.E), 3),
+                    0x5C => self.alu_test_bit(self.registers.read_single(SingleRegister.H), 3),
+                    0x5D => self.alu_test_bit(self.registers.read_single(SingleRegister.L), 3),
+                    0x5E => {
+                        const val = self.read_memory_hl();
+                        self.alu_test_bit(val, 3);
+                    },
+
+                    0x60 => self.alu_test_bit(self.registers.read_single(SingleRegister.B), 4),
+                    0x61 => self.alu_test_bit(self.registers.read_single(SingleRegister.C), 4),
+                    0x62 => self.alu_test_bit(self.registers.read_single(SingleRegister.D), 4),
+                    0x63 => self.alu_test_bit(self.registers.read_single(SingleRegister.E), 4),
+                    0x64 => self.alu_test_bit(self.registers.read_single(SingleRegister.H), 4),
+                    0x65 => self.alu_test_bit(self.registers.read_single(SingleRegister.L), 4),
+                    0x66 => {
+                        const val = self.read_memory_hl();
+                        self.alu_test_bit(val, 4);
+                    },
+
+                    0x68 => self.alu_test_bit(self.registers.read_single(SingleRegister.B), 5),
+                    0x69 => self.alu_test_bit(self.registers.read_single(SingleRegister.C), 5),
+                    0x6A => self.alu_test_bit(self.registers.read_single(SingleRegister.D), 5),
+                    0x6B => self.alu_test_bit(self.registers.read_single(SingleRegister.E), 5),
+                    0x6C => self.alu_test_bit(self.registers.read_single(SingleRegister.H), 5),
+                    0x6D => self.alu_test_bit(self.registers.read_single(SingleRegister.L), 5),
+                    0x6E => {
+                        const val = self.read_memory_hl();
+                        self.alu_test_bit(val, 5);
+                    },
+
+                    0x70 => self.alu_test_bit(self.registers.read_single(SingleRegister.B), 6),
+                    0x71 => self.alu_test_bit(self.registers.read_single(SingleRegister.C), 6),
+                    0x72 => self.alu_test_bit(self.registers.read_single(SingleRegister.D), 6),
+                    0x73 => self.alu_test_bit(self.registers.read_single(SingleRegister.E), 6),
+                    0x74 => self.alu_test_bit(self.registers.read_single(SingleRegister.H), 6),
+                    0x75 => self.alu_test_bit(self.registers.read_single(SingleRegister.L), 6),
+                    0x76 => {
+                        const val = self.read_memory_hl();
+                        self.alu_test_bit(val, 6);
+                    },
+
+                    0x78 => self.alu_test_bit(self.registers.read_single(SingleRegister.B), 7),
+                    0x79 => self.alu_test_bit(self.registers.read_single(SingleRegister.C), 7),
+                    0x7A => self.alu_test_bit(self.registers.read_single(SingleRegister.D), 7),
+                    0x7B => self.alu_test_bit(self.registers.read_single(SingleRegister.E), 7),
+                    0x7C => self.alu_test_bit(self.registers.read_single(SingleRegister.H), 7),
+                    0x7D => self.alu_test_bit(self.registers.read_single(SingleRegister.L), 7),
+                    0x7E => {
+                        const val = self.read_memory_hl();
+                        self.alu_test_bit(val, 7);
+                    },
+
+                    0x47 => self.alu_test_bit(self.registers.read_single(SingleRegister.A), 0),
+                    0x4F => self.alu_test_bit(self.registers.read_single(SingleRegister.A), 1),
+                    0x57 => self.alu_test_bit(self.registers.read_single(SingleRegister.A), 2),
+                    0x5F => self.alu_test_bit(self.registers.read_single(SingleRegister.A), 3),
+                    0x67 => self.alu_test_bit(self.registers.read_single(SingleRegister.A), 4),
+                    0x6F => self.alu_test_bit(self.registers.read_single(SingleRegister.A), 5),
+                    0x77 => self.alu_test_bit(self.registers.read_single(SingleRegister.A), 6),
+                    0x7F => self.alu_test_bit(self.registers.read_single(SingleRegister.A), 7),
+
+                    // Reset
+                    0x80 => self.registers.assign_single(SingleRegister.B, self.alu_reset_bit(self.registers.read_single(SingleRegister.B), 0)),
+                    0x81 => self.registers.assign_single(SingleRegister.C, self.alu_reset_bit(self.registers.read_single(SingleRegister.C), 0)),
+                    0x82 => self.registers.assign_single(SingleRegister.D, self.alu_reset_bit(self.registers.read_single(SingleRegister.D), 0)),
+                    0x83 => self.registers.assign_single(SingleRegister.E, self.alu_reset_bit(self.registers.read_single(SingleRegister.E), 0)),
+                    0x84 => self.registers.assign_single(SingleRegister.H, self.alu_reset_bit(self.registers.read_single(SingleRegister.H), 0)),
+                    0x85 => self.registers.assign_single(SingleRegister.L, self.alu_reset_bit(self.registers.read_single(SingleRegister.L), 0)),
+                    0x86 => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_reset_bit(val, 0);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0x88 => self.registers.assign_single(SingleRegister.B, self.alu_reset_bit(self.registers.read_single(SingleRegister.B), 1)),
+                    0x89 => self.registers.assign_single(SingleRegister.C, self.alu_reset_bit(self.registers.read_single(SingleRegister.C), 1)),
+                    0x8A => self.registers.assign_single(SingleRegister.D, self.alu_reset_bit(self.registers.read_single(SingleRegister.D), 1)),
+                    0x8B => self.registers.assign_single(SingleRegister.E, self.alu_reset_bit(self.registers.read_single(SingleRegister.E), 1)),
+                    0x8C => self.registers.assign_single(SingleRegister.H, self.alu_reset_bit(self.registers.read_single(SingleRegister.H), 1)),
+                    0x8D => self.registers.assign_single(SingleRegister.L, self.alu_reset_bit(self.registers.read_single(SingleRegister.L), 1)),
+                    0x8E => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_reset_bit(val, 1);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0x90 => self.registers.assign_single(SingleRegister.B, self.alu_reset_bit(self.registers.read_single(SingleRegister.B), 2)),
+                    0x91 => self.registers.assign_single(SingleRegister.C, self.alu_reset_bit(self.registers.read_single(SingleRegister.C), 2)),
+                    0x92 => self.registers.assign_single(SingleRegister.D, self.alu_reset_bit(self.registers.read_single(SingleRegister.D), 2)),
+                    0x93 => self.registers.assign_single(SingleRegister.E, self.alu_reset_bit(self.registers.read_single(SingleRegister.E), 2)),
+                    0x94 => self.registers.assign_single(SingleRegister.H, self.alu_reset_bit(self.registers.read_single(SingleRegister.H), 2)),
+                    0x95 => self.registers.assign_single(SingleRegister.L, self.alu_reset_bit(self.registers.read_single(SingleRegister.L), 2)),
+                    0x96 => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_reset_bit(val, 2);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0x98 => self.registers.assign_single(SingleRegister.B, self.alu_reset_bit(self.registers.read_single(SingleRegister.B), 3)),
+                    0x99 => self.registers.assign_single(SingleRegister.C, self.alu_reset_bit(self.registers.read_single(SingleRegister.C), 3)),
+                    0x9A => self.registers.assign_single(SingleRegister.D, self.alu_reset_bit(self.registers.read_single(SingleRegister.D), 3)),
+                    0x9B => self.registers.assign_single(SingleRegister.E, self.alu_reset_bit(self.registers.read_single(SingleRegister.E), 3)),
+                    0x9C => self.registers.assign_single(SingleRegister.H, self.alu_reset_bit(self.registers.read_single(SingleRegister.H), 3)),
+                    0x9D => self.registers.assign_single(SingleRegister.L, self.alu_reset_bit(self.registers.read_single(SingleRegister.L), 3)),
+                    0x9E => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_reset_bit(val, 3);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xA0 => self.registers.assign_single(SingleRegister.B, self.alu_reset_bit(self.registers.read_single(SingleRegister.B), 4)),
+                    0xA1 => self.registers.assign_single(SingleRegister.C, self.alu_reset_bit(self.registers.read_single(SingleRegister.C), 4)),
+                    0xA2 => self.registers.assign_single(SingleRegister.D, self.alu_reset_bit(self.registers.read_single(SingleRegister.D), 4)),
+                    0xA3 => self.registers.assign_single(SingleRegister.E, self.alu_reset_bit(self.registers.read_single(SingleRegister.E), 4)),
+                    0xA4 => self.registers.assign_single(SingleRegister.H, self.alu_reset_bit(self.registers.read_single(SingleRegister.H), 4)),
+                    0xA5 => self.registers.assign_single(SingleRegister.L, self.alu_reset_bit(self.registers.read_single(SingleRegister.L), 4)),
+                    0xA6 => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_reset_bit(val, 4);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xA8 => self.registers.assign_single(SingleRegister.B, self.alu_reset_bit(self.registers.read_single(SingleRegister.B), 5)),
+                    0xA9 => self.registers.assign_single(SingleRegister.C, self.alu_reset_bit(self.registers.read_single(SingleRegister.C), 5)),
+                    0xAA => self.registers.assign_single(SingleRegister.D, self.alu_reset_bit(self.registers.read_single(SingleRegister.D), 5)),
+                    0xAB => self.registers.assign_single(SingleRegister.E, self.alu_reset_bit(self.registers.read_single(SingleRegister.E), 5)),
+                    0xAC => self.registers.assign_single(SingleRegister.H, self.alu_reset_bit(self.registers.read_single(SingleRegister.H), 5)),
+                    0xAD => self.registers.assign_single(SingleRegister.L, self.alu_reset_bit(self.registers.read_single(SingleRegister.L), 5)),
+                    0xAE => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_reset_bit(val, 5);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xB0 => self.registers.assign_single(SingleRegister.B, self.alu_reset_bit(self.registers.read_single(SingleRegister.B), 6)),
+                    0xB1 => self.registers.assign_single(SingleRegister.C, self.alu_reset_bit(self.registers.read_single(SingleRegister.C), 6)),
+                    0xB2 => self.registers.assign_single(SingleRegister.D, self.alu_reset_bit(self.registers.read_single(SingleRegister.D), 6)),
+                    0xB3 => self.registers.assign_single(SingleRegister.E, self.alu_reset_bit(self.registers.read_single(SingleRegister.E), 6)),
+                    0xB4 => self.registers.assign_single(SingleRegister.H, self.alu_reset_bit(self.registers.read_single(SingleRegister.H), 6)),
+                    0xB5 => self.registers.assign_single(SingleRegister.L, self.alu_reset_bit(self.registers.read_single(SingleRegister.L), 6)),
+                    0xB6 => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_reset_bit(val, 6);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xB8 => self.registers.assign_single(SingleRegister.B, self.alu_reset_bit(self.registers.read_single(SingleRegister.B), 7)),
+                    0xB9 => self.registers.assign_single(SingleRegister.C, self.alu_reset_bit(self.registers.read_single(SingleRegister.C), 7)),
+                    0xBA => self.registers.assign_single(SingleRegister.D, self.alu_reset_bit(self.registers.read_single(SingleRegister.D), 7)),
+                    0xBB => self.registers.assign_single(SingleRegister.E, self.alu_reset_bit(self.registers.read_single(SingleRegister.E), 7)),
+                    0xBC => self.registers.assign_single(SingleRegister.H, self.alu_reset_bit(self.registers.read_single(SingleRegister.H), 7)),
+                    0xBD => self.registers.assign_single(SingleRegister.L, self.alu_reset_bit(self.registers.read_single(SingleRegister.L), 7)),
+                    0xBE => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_reset_bit(val, 5);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0x87 => self.registers.assign_single(SingleRegister.A, self.alu_reset_bit(self.registers.read_single(SingleRegister.A), 0)),
+                    0x8F => self.registers.assign_single(SingleRegister.A, self.alu_reset_bit(self.registers.read_single(SingleRegister.A), 1)),
+                    0x97 => self.registers.assign_single(SingleRegister.A, self.alu_reset_bit(self.registers.read_single(SingleRegister.A), 2)),
+                    0x9F => self.registers.assign_single(SingleRegister.A, self.alu_reset_bit(self.registers.read_single(SingleRegister.A), 3)),
+                    0xA7 => self.registers.assign_single(SingleRegister.A, self.alu_reset_bit(self.registers.read_single(SingleRegister.A), 4)),
+                    0xAF => self.registers.assign_single(SingleRegister.A, self.alu_reset_bit(self.registers.read_single(SingleRegister.A), 5)),
+                    0xB7 => self.registers.assign_single(SingleRegister.A, self.alu_reset_bit(self.registers.read_single(SingleRegister.A), 6)),
+                    0xBF => self.registers.assign_single(SingleRegister.A, self.alu_reset_bit(self.registers.read_single(SingleRegister.A), 7)),
+
+                    // Set
+                    0xC0 => self.registers.assign_single(SingleRegister.B, self.alu_set_bit(self.registers.read_single(SingleRegister.B), 0)),
+                    0xC1 => self.registers.assign_single(SingleRegister.C, self.alu_set_bit(self.registers.read_single(SingleRegister.C), 0)),
+                    0xC2 => self.registers.assign_single(SingleRegister.D, self.alu_set_bit(self.registers.read_single(SingleRegister.D), 0)),
+                    0xC3 => self.registers.assign_single(SingleRegister.E, self.alu_set_bit(self.registers.read_single(SingleRegister.E), 0)),
+                    0xC4 => self.registers.assign_single(SingleRegister.H, self.alu_set_bit(self.registers.read_single(SingleRegister.H), 0)),
+                    0xC5 => self.registers.assign_single(SingleRegister.L, self.alu_set_bit(self.registers.read_single(SingleRegister.L), 0)),
+                    0xC6 => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_set_bit(val, 0);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xC8 => self.registers.assign_single(SingleRegister.B, self.alu_set_bit(self.registers.read_single(SingleRegister.B), 1)),
+                    0xC9 => self.registers.assign_single(SingleRegister.C, self.alu_set_bit(self.registers.read_single(SingleRegister.C), 1)),
+                    0xCA => self.registers.assign_single(SingleRegister.D, self.alu_set_bit(self.registers.read_single(SingleRegister.D), 1)),
+                    0xCB => self.registers.assign_single(SingleRegister.E, self.alu_set_bit(self.registers.read_single(SingleRegister.E), 1)),
+                    0xCC => self.registers.assign_single(SingleRegister.H, self.alu_set_bit(self.registers.read_single(SingleRegister.H), 1)),
+                    0xCD => self.registers.assign_single(SingleRegister.L, self.alu_set_bit(self.registers.read_single(SingleRegister.L), 1)),
+                    0xCE => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_set_bit(val, 1);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xD0 => self.registers.assign_single(SingleRegister.B, self.alu_set_bit(self.registers.read_single(SingleRegister.B), 2)),
+                    0xD1 => self.registers.assign_single(SingleRegister.C, self.alu_set_bit(self.registers.read_single(SingleRegister.C), 2)),
+                    0xD2 => self.registers.assign_single(SingleRegister.D, self.alu_set_bit(self.registers.read_single(SingleRegister.D), 2)),
+                    0xD3 => self.registers.assign_single(SingleRegister.E, self.alu_set_bit(self.registers.read_single(SingleRegister.E), 2)),
+                    0xD4 => self.registers.assign_single(SingleRegister.H, self.alu_set_bit(self.registers.read_single(SingleRegister.H), 2)),
+                    0xD5 => self.registers.assign_single(SingleRegister.L, self.alu_set_bit(self.registers.read_single(SingleRegister.L), 2)),
+                    0xD6 => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_set_bit(val, 2);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xD8 => self.registers.assign_single(SingleRegister.B, self.alu_set_bit(self.registers.read_single(SingleRegister.B), 3)),
+                    0xD9 => self.registers.assign_single(SingleRegister.C, self.alu_set_bit(self.registers.read_single(SingleRegister.C), 3)),
+                    0xDA => self.registers.assign_single(SingleRegister.D, self.alu_set_bit(self.registers.read_single(SingleRegister.D), 3)),
+                    0xDB => self.registers.assign_single(SingleRegister.E, self.alu_set_bit(self.registers.read_single(SingleRegister.E), 3)),
+                    0xDC => self.registers.assign_single(SingleRegister.H, self.alu_set_bit(self.registers.read_single(SingleRegister.H), 3)),
+                    0xDD => self.registers.assign_single(SingleRegister.L, self.alu_set_bit(self.registers.read_single(SingleRegister.L), 3)),
+                    0xDE => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_set_bit(val, 3);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xE0 => self.registers.assign_single(SingleRegister.B, self.alu_set_bit(self.registers.read_single(SingleRegister.B), 4)),
+                    0xE1 => self.registers.assign_single(SingleRegister.C, self.alu_set_bit(self.registers.read_single(SingleRegister.C), 4)),
+                    0xE2 => self.registers.assign_single(SingleRegister.D, self.alu_set_bit(self.registers.read_single(SingleRegister.D), 4)),
+                    0xE3 => self.registers.assign_single(SingleRegister.E, self.alu_set_bit(self.registers.read_single(SingleRegister.E), 4)),
+                    0xE4 => self.registers.assign_single(SingleRegister.H, self.alu_set_bit(self.registers.read_single(SingleRegister.H), 4)),
+                    0xE5 => self.registers.assign_single(SingleRegister.L, self.alu_set_bit(self.registers.read_single(SingleRegister.L), 4)),
+                    0xE6 => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_set_bit(val, 4);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xE8 => self.registers.assign_single(SingleRegister.B, self.alu_set_bit(self.registers.read_single(SingleRegister.B), 5)),
+                    0xE9 => self.registers.assign_single(SingleRegister.C, self.alu_set_bit(self.registers.read_single(SingleRegister.C), 5)),
+                    0xEA => self.registers.assign_single(SingleRegister.D, self.alu_set_bit(self.registers.read_single(SingleRegister.D), 5)),
+                    0xEB => self.registers.assign_single(SingleRegister.E, self.alu_set_bit(self.registers.read_single(SingleRegister.E), 5)),
+                    0xEC => self.registers.assign_single(SingleRegister.H, self.alu_set_bit(self.registers.read_single(SingleRegister.H), 5)),
+                    0xED => self.registers.assign_single(SingleRegister.L, self.alu_set_bit(self.registers.read_single(SingleRegister.L), 5)),
+                    0xEE => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_set_bit(val, 5);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xF0 => self.registers.assign_single(SingleRegister.B, self.alu_set_bit(self.registers.read_single(SingleRegister.B), 6)),
+                    0xF1 => self.registers.assign_single(SingleRegister.C, self.alu_set_bit(self.registers.read_single(SingleRegister.C), 6)),
+                    0xF2 => self.registers.assign_single(SingleRegister.D, self.alu_set_bit(self.registers.read_single(SingleRegister.D), 6)),
+                    0xF3 => self.registers.assign_single(SingleRegister.E, self.alu_set_bit(self.registers.read_single(SingleRegister.E), 6)),
+                    0xF4 => self.registers.assign_single(SingleRegister.H, self.alu_set_bit(self.registers.read_single(SingleRegister.H), 6)),
+                    0xF5 => self.registers.assign_single(SingleRegister.L, self.alu_set_bit(self.registers.read_single(SingleRegister.L), 6)),
+                    0xF6 => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_set_bit(val, 6);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xF8 => self.registers.assign_single(SingleRegister.B, self.alu_set_bit(self.registers.read_single(SingleRegister.B), 7)),
+                    0xF9 => self.registers.assign_single(SingleRegister.C, self.alu_set_bit(self.registers.read_single(SingleRegister.C), 7)),
+                    0xFA => self.registers.assign_single(SingleRegister.D, self.alu_set_bit(self.registers.read_single(SingleRegister.D), 7)),
+                    0xFB => self.registers.assign_single(SingleRegister.E, self.alu_set_bit(self.registers.read_single(SingleRegister.E), 7)),
+                    0xFC => self.registers.assign_single(SingleRegister.H, self.alu_set_bit(self.registers.read_single(SingleRegister.H), 7)),
+                    0xFD => self.registers.assign_single(SingleRegister.L, self.alu_set_bit(self.registers.read_single(SingleRegister.L), 7)),
+                    0xFE => {
+                        const val = self.read_memory_hl();
+                        const res = self.alu_set_bit(val, 7);
+
+                        self.write_memory_hl(res);
+                    },
+
+                    0xC7 => self.registers.assign_single(SingleRegister.A, self.alu_set_bit(self.registers.read_single(SingleRegister.A), 0)),
+                    0xCF => self.registers.assign_single(SingleRegister.A, self.alu_set_bit(self.registers.read_single(SingleRegister.A), 1)),
+                    0xD7 => self.registers.assign_single(SingleRegister.A, self.alu_set_bit(self.registers.read_single(SingleRegister.A), 2)),
+                    0xDF => self.registers.assign_single(SingleRegister.A, self.alu_set_bit(self.registers.read_single(SingleRegister.A), 3)),
+                    0xE7 => self.registers.assign_single(SingleRegister.A, self.alu_set_bit(self.registers.read_single(SingleRegister.A), 4)),
+                    0xEF => self.registers.assign_single(SingleRegister.A, self.alu_set_bit(self.registers.read_single(SingleRegister.A), 5)),
+                    0xF7 => self.registers.assign_single(SingleRegister.A, self.alu_set_bit(self.registers.read_single(SingleRegister.A), 6)),
+                    0xFF => self.registers.assign_single(SingleRegister.A, self.alu_set_bit(self.registers.read_single(SingleRegister.A), 7)),
                 }
             },
             0x27 => self.alu_daa(),
@@ -1119,7 +1460,6 @@ pub const Cpu = struct {
             0x2A => {
                 const c = self.read_memory_hl();
 
-                std.debug.print("\n== {d}\n", .{self.registers.read_double(PairRegister.HL)});
                 self.alu_inc16(PairRegister.HL);
                 self.registers.assign_single(SingleRegister.A, c);
             },
@@ -1374,8 +1714,7 @@ pub const Cpu = struct {
                 return condition[i];
             }
         } else {
-            std.debug.assert(next != 0xFF);
-            return double_cycles[next];
+            return double_cycles[next.?];
         }
     }
 

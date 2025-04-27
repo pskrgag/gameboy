@@ -1135,7 +1135,7 @@ pub const Cpu = struct {
                     0xBD => self.registers.assign_single(SingleRegister.L, self.alu_reset_bit(self.registers.read_single(SingleRegister.L), 7)),
                     0xBE => {
                         const val = self.read_memory_hl();
-                        const res = self.alu_reset_bit(val, 5);
+                        const res = self.alu_reset_bit(val, 7);
 
                         self.write_memory_hl(res);
                     },

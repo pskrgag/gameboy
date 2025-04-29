@@ -2,6 +2,7 @@ const std = @import("std");
 const Timer = @import("devices/timer.zig").Timer;
 const Ppu = @import("devices/gpu.zig").Ppu;
 const Serial = @import("devices/serial.zig").Serial;
+const Cartridge = @import("devices/cartridge.zig").Cartridge;
 
 const ROM_SIZE = 0x8000;
 const ROM_BASE = 0x0;
@@ -27,10 +28,6 @@ const IE_REG = 0xFFFF;
 // Interrupt flag
 const IF_REG = 0xFF0F;
 
-// LCD registers
-const LCD_BASE = 0xFF40;
-const LCD_SIZE = 8;
-
 // Serial registers
 const SERIAL_BEGIN = 0xFF01;
 const SERIAL_SIZE = 2;
@@ -38,6 +35,9 @@ const SERIAL_SIZE = 2;
 // Joypad
 const JOYPAD_BEGIN = 0xFF00;
 const JOYPAD_SIZE = 1;
+
+const OAM_START = 0xFE00;
+const OAM_SIZE = 40 * 4;
 
 pub const Memory = struct {
     rom: [ROM_SIZE]u8,
@@ -85,7 +85,7 @@ pub const Memory = struct {
             self.iff |= (1 << @intFromEnum(IrqSource.Timer));
         }
 
-        self.ppu.tick(mcycles);
+        self.iff |= self.ppu.tick(mcycles);
     }
 
     pub fn new(rom: []u8) Self {
@@ -100,7 +100,8 @@ pub const Memory = struct {
 
         switch (addr) {
             ROM_BASE...ROM_BASE + ROM_SIZE - 1 => {
-                @panic("Writing to rom is not supported yet");
+                std.debug.assert(self.rom[0x147] == 0);
+                // @panic("Writing to rom is not supported yet");
             },
             INTERNAL_RAM_BASE...INTERNAL_RAM_BASE + INTERNAL_RAM_SIZE - 1 => {
                 const idx = addr - INTERNAL_RAM_BASE;
@@ -115,18 +116,33 @@ pub const Memory = struct {
             VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE - 1, 0xFF68, 0xFF69, 0xFF4F => {
                 self.ppu.write(addr, @truncate(val));
             },
+            OAM_START...OAM_START + OAM_SIZE - 1 => {
+                self.ppu.write(addr, @truncate(val));
+            },
             TIMER_BASE...TIMER_BASE + TIMER_SIZE - 1 => {
                 self.timer.write(addr, @truncate(val));
             },
-            LCD_BASE...LCD_BASE + LCD_SIZE => self.ppu.write(addr, @truncate(val)),
+            0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49 => self.ppu.write(addr, @truncate(val)),
             IE_REG => self.ie = @truncate(val),
             IF_REG => self.iff = @truncate(val),
             SOUND_BASE...SOUND_BASE + SOUND_SIZE - 1 => {},
             JOYPAD_BEGIN...JOYPAD_BEGIN + JOYPAD_SIZE - 1 => {},
             SERIAL_BEGIN...SERIAL_BEGIN + SERIAL_SIZE - 1 => self.serial.write(addr, @truncate(val)),
+            0xFF46 => {
+                // Starts a DMA transfer (val << 8) is a base address, while 0xFE00 is destination
+                // This transfer should copy 0xA0 (160) bytes of memory
+                const source: u16 = @as(u16, val) << 8;
+                const dst: u16 = 0xFE00;
+
+                for (0..160) |i| {
+                    const data = self.read(u8, source + @as(u16, @truncate(i)));
+
+                    self.write(u8, dst + @as(u16, @truncate(i)), data);
+                }
+            },
             else => {
-                std.debug.print("\nAddr {x}\n", .{addr});
-                @panic("Write to unknown memory");
+                // std.debug.print("Write to unknown memory: Addr {x}\n", .{addr});
+                // @panic("Write to unknown memory");
             },
         }
     }
@@ -162,13 +178,14 @@ pub const Memory = struct {
             SOUND_BASE...SOUND_BASE + SOUND_SIZE => {
                 res = 0;
             },
-            LCD_BASE...LCD_BASE + LCD_SIZE - 1 => res = self.ppu.read(addr),
+            0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49 => res = self.ppu.read(addr),
             JOYPAD_BEGIN...JOYPAD_BEGIN + JOYPAD_SIZE - 1 => {
-                res = 0;
+                res = 0xFF;
             },
+            SERIAL_BEGIN...SERIAL_BEGIN + SERIAL_SIZE - 1 => res = self.serial.read(addr),
             else => {
-                std.debug.print("Address {x}\n", .{addr});
-                @panic("Read of unknown memory");
+                // std.debug.print("Read of unknown memory {x}\n", .{addr});
+                res = 0xFF;
             },
         }
 

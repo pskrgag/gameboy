@@ -71,6 +71,8 @@ pub const Cpu = struct {
     debug: bool,
     ei: bool,
     halted: bool,
+    ei_cnt: u2,
+    di_cnt: u2,
 
     const Self = @This();
 
@@ -83,6 +85,8 @@ pub const Cpu = struct {
             .debug = debug,
             .ei = true,
             .halted = false,
+            .ei_cnt = 0,
+            .di_cnt = 0,
         };
     }
 
@@ -674,7 +678,24 @@ pub const Cpu = struct {
         return 4;
     }
 
+    fn update_ei(self: *Self) void {
+        if (self.di_cnt != 0) {
+            self.di_cnt -= 1;
+
+            if (self.di_cnt == 0)
+                self.ei = false;
+        }
+
+        if (self.ei_cnt != 0) {
+            self.ei_cnt -= 1;
+
+            if (self.ei_cnt == 0)
+                self.ei = true;
+        }
+    }
+
     pub fn tick(self: *Self) void {
+        self.update_ei();
         var ticks = self.handle_irq();
 
         if (ticks == 0 and !self.halted) {
@@ -1473,14 +1494,13 @@ pub const Cpu = struct {
                 const a = self.registers.read_single(SingleRegister.A);
                 const nn = self.advance_pc();
 
-                // std.debug.print(" {x} ", .{nn});
                 self.memory_write_u8(0xFF00 | @as(u16, nn), a);
             },
             0xF0 => {
                 const nn = self.advance_pc();
                 const val = self.memory_read_u8(0xFF00 | @as(u16, nn));
 
-                // std.debug.print(" {x} ", .{nn});
+                std.debug.print(" {x} ", .{nn});
                 self.registers.assign_single(SingleRegister.A, val);
             },
             0x01 => {
@@ -1596,13 +1616,13 @@ pub const Cpu = struct {
             },
 
             // DI
-            0xF3 => self.ei = false,
-            0xFB => self.ei = true,
+            0xF3 => self.di_cnt = 2,
+            0xFB => self.ei_cnt = 2,
 
             // Reti
             0xD9 => {
                 self.ret();
-                self.ei = true;
+                self.ei_cnt = 1;
             },
             // Ret
             0xC9 => self.ret(),

@@ -49,7 +49,7 @@ pub const Gameboy = struct {
         };
 
         return Self{
-            .cpu = Cpu.default(rom, false),
+            .cpu = Cpu.default(rom, true),
             .window = window,
             .renderer = renderer,
             .x = 0,
@@ -67,66 +67,43 @@ pub const Gameboy = struct {
     pub fn tick(self: *Self) !void {
         self.cpu.tick();
 
-        var next = self.cpu.memory.ppu.pop_pixel();
+        const scanline = self.cpu.memory.ppu.pop_scanline();
 
-        while (next != null) {
-            std.debug.assert(self.cpu.memory.ppu.y == self.y);
+        if (scanline != null) {
+            for (scanline.?) |color| {
+                std.debug.assert(self.cpu.memory.ppu.y == self.y);
 
-            // if (self.x == 0 and self.y == 0)
-            //     std.debug.print("START\n", .{});
+                const rect =
+                    SDL.Rectangle{
+                        .x = @intCast(@as(u16, self.x) * TILE_SCALE),
+                        .y = @intCast(@as(u16, self.y) * TILE_SCALE),
+                        .width = TILE_SCALE,
+                        .height = TILE_SCALE,
+                    };
 
-            // std.debug.print("pop -- {x}\n", .{next.?});
+                try self.renderer.setColor(color);
+                try self.renderer.fillRect(rect);
 
-            const color = Ppu.ColorArray[next.?];
-            const rect =
-                SDL.Rectangle{
-                    .x = @intCast(@as(u16, self.x) * TILE_SCALE),
-                    .y = @intCast(@as(u16, self.y) * TILE_SCALE),
-                    .width = TILE_SCALE,
-                    .height = TILE_SCALE,
-                };
+                self.x += 1;
 
-            try self.renderer.setColor(color);
-            try self.renderer.fillRect(rect);
+                if (self.x == WINDOW_WIDTH) {
+                    self.y = (self.y + 1) % WINDOW_HEIGTH;
+                    self.x = 0;
+                }
 
-            self.x += 1;
+                self.pixels += 1;
 
-            if (self.x == WINDOW_WIDTH) {
-                self.y = (self.y + 1) % WINDOW_HEIGTH;
-                self.x = 0;
+                if (self.pixels == (WINDOW_HEIGTH * WINDOW_WIDTH)) {
+                    self.pixels = 0;
+                    self.renderer.present();
+                }
             }
-
-            self.pixels += 1;
-
-            if (self.pixels == (WINDOW_HEIGTH * WINDOW_WIDTH)) {
-                self.renderer.present();
-                self.pixels = 0;
-
-                // for (0..32) |i| {
-                //     std.debug.print("{x}: ", .{i});
-                //
-                //     for (0..32) |j| {
-                //         std.debug.print("{x} ", .{self.cpu.memory.ppu.read(0x9800 + @as(u16, @truncate(j)) + @as(u16, @truncate(i)) * 32)});
-                //     }
-                //
-                //     std.debug.print("\n", .{});
-                // }
-                // std.debug.print("\n", .{});
-                // std.debug.print("tiles\n", .{});
-                //
-                // for (0..50) |i| {
-                //     std.debug.print("{x}: {{", .{i});
-                //     for (0..16) |j| {
-                //         std.debug.print("0x{x}, ", .{self.cpu.memory.ppu.read(0x8000 + @as(u16, @truncate(j)) + @as(u16, @truncate(i)) * 16)});
-                //     }
-                //     std.debug.print("}}\n", .{});
-                // }
-            }
-
-            next = self.cpu.memory.ppu.pop_pixel();
         }
 
-        std.debug.assert(self.cpu.memory.ppu.x == self.x);
+        if (self.cpu.memory.ppu.x != self.x) {
+            std.debug.print("{} {}\n", .{ self.cpu.memory.ppu.x, self.x });
+            std.debug.assert(self.cpu.memory.ppu.x == self.x);
+        }
     }
 
     pub fn deinit(self: *Self) void {

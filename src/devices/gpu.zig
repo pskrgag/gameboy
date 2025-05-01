@@ -373,7 +373,7 @@ pub const Ppu = struct {
     fn ppu_on(self: *Self) void {
         self.ticks = 4;
         self.y = 0;
-        self.state = PpuState.OAMScan;
+        self.state = PpuState.HBlank;
     }
 
     pub fn write(self: *Self, addr: u16, val: u8) void {

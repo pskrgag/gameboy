@@ -18,8 +18,6 @@ pub const Gameboy = struct {
     cpu: Cpu,
     window: SDL.Window,
     renderer: SDL.Renderer,
-    y: u8,
-    x: u8,
     pixels: u16,
 
     const Self = @This();
@@ -55,8 +53,6 @@ pub const Gameboy = struct {
             .cpu = Cpu.default(rom, false),
             .window = window,
             .renderer = renderer,
-            .x = 0,
-            .y = 0,
             .pixels = 0,
         };
     }
@@ -67,52 +63,36 @@ pub const Gameboy = struct {
         }
     }
 
+    fn sdl_to_gameboy(key: KeyboardEvent) ?Key {
+        return switch (key.keycode) {
+            .space => Key.Select,
+            .@"return" => Key.Start,
+            .left => Key.Left,
+            .right => Key.Right,
+            .down => Key.Down,
+            .up => Key.Up,
+            .z => Key.A,
+            .x => Key.B,
+            else => null,
+        };
+    }
+
     pub fn tick(self: *Self) !void {
         // Check SDL events
         while (SDL.pollEvent()) |ev| {
             switch (ev) {
                 .quit => std.process.cleanExit(),
                 .key_down => |key| {
-                    switch (key.keycode) {
-                        .space => {
-                            self.cpu.memory.joypad.key_pressed(Key.Select);
-                        },
-                        .@"return" => {
-                            self.cpu.memory.joypad.key_pressed(Key.Start);
-                        },
-                        .left => {
-                            self.cpu.memory.joypad.key_pressed(Key.Left);
-                        },
-                        .right => {
-                            self.cpu.memory.joypad.key_pressed(Key.Right);
-                        },
-                        .down => {
-                            self.cpu.memory.joypad.key_pressed(Key.Down);
-                        },
-                        .up => {
-                            self.cpu.memory.joypad.key_pressed(Key.Up);
-                        },
-                        else => {},
-                    }
+                    const mapped = Self.sdl_to_gameboy(key);
+
+                    if (mapped != null)
+                        self.cpu.memory.joypad.key_pressed(mapped.?);
                 },
                 .key_up => |key| {
-                    switch (key.keycode) {
-                        .space => self.cpu.memory.joypad.key_released(Key.Select),
-                        .@"return" => self.cpu.memory.joypad.key_released(Key.Start),
-                        .left => {
-                            self.cpu.memory.joypad.key_released(Key.Left);
-                        },
-                        .right => {
-                            self.cpu.memory.joypad.key_released(Key.Right);
-                        },
-                        .down => {
-                            self.cpu.memory.joypad.key_released(Key.Down);
-                        },
-                        .up => {
-                            self.cpu.memory.joypad.key_released(Key.Up);
-                        },
-                        else => {},
-                    }
+                    const mapped = Self.sdl_to_gameboy(key);
+
+                    if (mapped != null)
+                        self.cpu.memory.joypad.key_released(mapped.?);
                 },
                 else => {},
             }
@@ -123,13 +103,14 @@ pub const Gameboy = struct {
         const scanline = self.cpu.memory.ppu.pop_scanline();
 
         if (scanline != null) {
-            for (scanline.?) |color| {
-                std.debug.assert(self.cpu.memory.ppu.y == self.y);
+            for (scanline.?, 0..) |color, x| {
+                const y = self.cpu.memory.ppu.y;
+                // std.debug.assert(self.cpu.memory.ppu.y == self.y);
 
                 const rect =
                     SDL.Rectangle{
-                        .x = @intCast(@as(u16, self.x) * TILE_SCALE),
-                        .y = @intCast(@as(u16, self.y) * TILE_SCALE),
+                        .x = @intCast(@as(u16, @truncate(x)) * TILE_SCALE),
+                        .y = @intCast(@as(u16, y) * TILE_SCALE),
                         .width = TILE_SCALE,
                         .height = TILE_SCALE,
                     };
@@ -137,25 +118,12 @@ pub const Gameboy = struct {
                 try self.renderer.setColor(color);
                 try self.renderer.fillRect(rect);
 
-                self.x += 1;
+                self.pixels = (self.pixels + 1) % (WINDOW_HEIGTH * WINDOW_WIDTH);
 
-                if (self.x == WINDOW_WIDTH) {
-                    self.y = (self.y + 1) % WINDOW_HEIGTH;
-                    self.x = 0;
-                }
-
-                self.pixels += 1;
-
-                if (self.pixels == (WINDOW_HEIGTH * WINDOW_WIDTH)) {
-                    self.pixels = 0;
+                if (self.pixels == 0) {
                     self.renderer.present();
                 }
             }
-        }
-
-        if (self.cpu.memory.ppu.x != self.x) {
-            std.debug.print("{} {}\n", .{ self.cpu.memory.ppu.x, self.x });
-            std.debug.assert(self.cpu.memory.ppu.x == self.x);
         }
     }
 

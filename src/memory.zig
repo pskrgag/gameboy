@@ -111,11 +111,7 @@ pub const Memory = struct {
 
         switch (addr) {
             ROM_BASE...ROM_BASE + ROM_SIZE - 1 => {
-                const idx = addr - ROM_BASE;
-
                 std.debug.assert(self.rom[0x147] == 0);
-                @memcpy(self.rom[idx .. idx + type_size], std.mem.asBytes(&val));
-                // @panic("Writing to rom is not supported yet");
             },
             INTERNAL_RAM_BASE...INTERNAL_RAM_BASE + INTERNAL_RAM_SIZE - 1 => {
                 const idx = addr - INTERNAL_RAM_BASE;

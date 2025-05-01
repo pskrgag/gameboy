@@ -73,6 +73,7 @@ pub const Cpu = struct {
     halted: bool,
     ei_cnt: u2,
     di_cnt: u2,
+    icount: u64,
 
     const Self = @This();
 
@@ -87,6 +88,7 @@ pub const Cpu = struct {
             .halted = false,
             .ei_cnt = 0,
             .di_cnt = 0,
+            .icount = 0,
         };
     }
 
@@ -701,7 +703,7 @@ pub const Cpu = struct {
         if (ticks == 0 and !self.halted) {
             ticks += self.execute_one();
             if (self.debug)
-                std.debug.print("Ticks {x}\n", .{ticks});
+                std.debug.print("Ticks {x} {x}\n", .{ ticks, self.memory.ppu.y });
         }
 
         if (self.halted and ticks == 0)
@@ -718,7 +720,7 @@ pub const Cpu = struct {
         self.cond = false;
 
         if (self.debug)
-            std.debug.print("Executing {x}", .{i});
+            std.debug.print("Executing {x} {x}", .{ i, self.icount });
 
         switch (i) {
             // Add instructions
@@ -1500,8 +1502,9 @@ pub const Cpu = struct {
                 const nn = self.advance_pc();
                 const val = self.memory_read_u8(0xFF00 + @as(u16, nn));
 
-                if (self.debug)
+                if (self.debug) {
                     std.debug.print(" {x} ", .{nn});
+                }
                 self.registers.assign_single(SingleRegister.A, val);
             },
             0x01 => {
@@ -1727,6 +1730,8 @@ pub const Cpu = struct {
             std.debug.print("\n", .{});
             self.dump_state(std.debug);
         }
+
+        self.icount += 1;
 
         if (i != 0xCB) {
             if (!self.cond) {

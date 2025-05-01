@@ -62,7 +62,7 @@ pub const Joypad = struct {
 
     pub fn read(self: *Self, addr: u16) u8 {
         std.debug.assert(addr == 0xFF00);
-        return self.raw | 0b11 << 5;
+        return self.raw | 0b11 << 6;
     }
 
     fn key_update(self: *Self, key: Key, action: u1) void {
@@ -105,7 +105,7 @@ pub const Joypad = struct {
     pub fn write(self: *Self, addr: u16, val: u8) void {
         std.debug.assert(addr == 0xFF00);
 
-        self.raw = val;
+        self.raw = val & (0b11 << 4) | (self.raw & 0xCF);
         self.event();
     }
 };

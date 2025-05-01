@@ -1,7 +1,10 @@
 const std = @import("std");
 const Cpu = @import("cpu.zig").Cpu;
 const SDL = @import("sdl2");
+const KeyboardEvent = @import("sdl2").KeyboardEvent;
+const Keycode = @import("sdl2").Keycode;
 const Ppu = @import("devices/gpu.zig").Ppu;
+const Key = @import("devices/joystick.zig").Key;
 
 const WINDOW_HEIGTH = 144;
 const WINDOW_WIDTH = 160;
@@ -49,7 +52,7 @@ pub const Gameboy = struct {
         };
 
         return Self{
-            .cpu = Cpu.default(rom, true),
+            .cpu = Cpu.default(rom, false),
             .window = window,
             .renderer = renderer,
             .x = 0,
@@ -65,6 +68,56 @@ pub const Gameboy = struct {
     }
 
     pub fn tick(self: *Self) !void {
+        // Check SDL events
+        while (SDL.pollEvent()) |ev| {
+            switch (ev) {
+                .quit => std.process.cleanExit(),
+                .key_down => |key| {
+                    switch (key.keycode) {
+                        .space => {
+                            self.cpu.memory.joypad.key_pressed(Key.Select);
+                        },
+                        .@"return" => {
+                            self.cpu.memory.joypad.key_pressed(Key.Start);
+                        },
+                        .left => {
+                            self.cpu.memory.joypad.key_pressed(Key.Left);
+                        },
+                        .right => {
+                            self.cpu.memory.joypad.key_pressed(Key.Right);
+                        },
+                        .down => {
+                            self.cpu.memory.joypad.key_pressed(Key.Down);
+                        },
+                        .up => {
+                            self.cpu.memory.joypad.key_pressed(Key.Up);
+                        },
+                        else => {},
+                    }
+                },
+                .key_up => |key| {
+                    switch (key.keycode) {
+                        .space => self.cpu.memory.joypad.key_released(Key.Select),
+                        .@"return" => self.cpu.memory.joypad.key_released(Key.Start),
+                        .left => {
+                            self.cpu.memory.joypad.key_released(Key.Left);
+                        },
+                        .right => {
+                            self.cpu.memory.joypad.key_released(Key.Right);
+                        },
+                        .down => {
+                            self.cpu.memory.joypad.key_released(Key.Down);
+                        },
+                        .up => {
+                            self.cpu.memory.joypad.key_released(Key.Up);
+                        },
+                        else => {},
+                    }
+                },
+                else => {},
+            }
+        }
+
         self.cpu.tick();
 
         const scanline = self.cpu.memory.ppu.pop_scanline();

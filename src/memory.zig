@@ -3,6 +3,7 @@ const Timer = @import("devices/timer.zig").Timer;
 const Ppu = @import("devices/gpu.zig").Ppu;
 const Serial = @import("devices/serial.zig").Serial;
 const Cartridge = @import("devices/cartridge.zig").Cartridge;
+const Joypad = @import("devices/joystick.zig").Joypad;
 
 const ROM_SIZE = 0x8000;
 const ROM_BASE = 0x0;
@@ -12,6 +13,9 @@ const INTERNAL_RAM_SIZE = 0xFFFF - 0xFF80;
 
 const INTERNAL_RAM8K_BASE = 0xA000;
 const INTERNAL_RAM8K_SIZE = 0x4000;
+
+const INTERNAL_RAM8K_ECHO_BASE = 0xE000;
+const INTERNAL_RAM8K_ECHO_SIZE = 0x1e00;
 
 const VIDEO_RAM_BASE = 0x8000;
 const VIDEO_RAM_SIZE = 0x2000;
@@ -46,6 +50,7 @@ pub const Memory = struct {
     timer: Timer,
     ppu: Ppu,
     serial: Serial,
+    joypad: Joypad,
     ie: u8,
     iff: u8,
 
@@ -77,6 +82,7 @@ pub const Memory = struct {
             .ie = 0,
             .iff = 0,
             .serial = Serial.default(),
+            .joypad = Joypad.default(),
         };
     }
 
@@ -86,6 +92,11 @@ pub const Memory = struct {
         }
 
         self.iff |= self.ppu.tick(mcycles);
+
+        if (self.joypad.irq) {
+            self.iff |= (1 << @intFromEnum(IrqSource.Joypad));
+            self.joypad.irq = false;
+        }
     }
 
     pub fn new(rom: []u8) Self {
@@ -100,7 +111,10 @@ pub const Memory = struct {
 
         switch (addr) {
             ROM_BASE...ROM_BASE + ROM_SIZE - 1 => {
+                const idx = addr - ROM_BASE;
+
                 std.debug.assert(self.rom[0x147] == 0);
+                @memcpy(self.rom[idx .. idx + type_size], std.mem.asBytes(&val));
                 // @panic("Writing to rom is not supported yet");
             },
             INTERNAL_RAM_BASE...INTERNAL_RAM_BASE + INTERNAL_RAM_SIZE - 1 => {
@@ -110,6 +124,11 @@ pub const Memory = struct {
             },
             INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE - 1 => {
                 const idx = addr - INTERNAL_RAM8K_BASE;
+
+                @memcpy(self.ram8k[idx .. idx + type_size], std.mem.asBytes(&val));
+            },
+            INTERNAL_RAM8K_ECHO_BASE...INTERNAL_RAM8K_ECHO_BASE + INTERNAL_RAM8K_ECHO_SIZE - 1 => {
+                const idx = 0x2000 + (addr - INTERNAL_RAM8K_ECHO_BASE);
 
                 @memcpy(self.ram8k[idx .. idx + type_size], std.mem.asBytes(&val));
             },
@@ -124,9 +143,16 @@ pub const Memory = struct {
             },
             0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49 => self.ppu.write(addr, @truncate(val)),
             IE_REG => self.ie = @truncate(val),
-            IF_REG => self.iff = @truncate(val),
+            IF_REG => {
+                if (val & (0b1111 << 4) != 0) {
+                    std.debug.print("{x}", .{val});
+                    @panic("{}");
+                }
+
+                self.iff = @truncate(val);
+            },
             SOUND_BASE...SOUND_BASE + SOUND_SIZE - 1 => {},
-            JOYPAD_BEGIN...JOYPAD_BEGIN + JOYPAD_SIZE - 1 => {},
+            JOYPAD_BEGIN...JOYPAD_BEGIN + JOYPAD_SIZE - 1 => self.joypad.write(addr, @truncate(val)),
             SERIAL_BEGIN...SERIAL_BEGIN + SERIAL_SIZE - 1 => self.serial.write(addr, @truncate(val)),
             0xFF46 => {
                 // Starts a DMA transfer (val << 8) is a base address, while 0xFE00 is destination
@@ -162,8 +188,13 @@ pub const Memory = struct {
 
                 @memcpy(std.mem.asBytes(&res), self.ram[idx .. idx + type_size]);
             },
-            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE => {
+            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE - 1 => {
                 const idx = addr - INTERNAL_RAM8K_BASE;
+
+                @memcpy(std.mem.asBytes(&res), self.ram8k[idx .. idx + type_size]);
+            },
+            INTERNAL_RAM8K_ECHO_BASE...INTERNAL_RAM8K_ECHO_BASE + INTERNAL_RAM8K_ECHO_SIZE - 1 => {
+                const idx = 0x2000 + (addr - INTERNAL_RAM8K_ECHO_BASE);
 
                 @memcpy(std.mem.asBytes(&res), self.ram8k[idx .. idx + type_size]);
             },
@@ -180,7 +211,7 @@ pub const Memory = struct {
             },
             0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49 => res = self.ppu.read(addr),
             JOYPAD_BEGIN...JOYPAD_BEGIN + JOYPAD_SIZE - 1 => {
-                res = 0xFF;
+                res = self.joypad.read(addr);
             },
             SERIAL_BEGIN...SERIAL_BEGIN + SERIAL_SIZE - 1 => res = self.serial.read(addr),
             else => {

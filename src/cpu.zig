@@ -1498,9 +1498,10 @@ pub const Cpu = struct {
             },
             0xF0 => {
                 const nn = self.advance_pc();
-                const val = self.memory_read_u8(0xFF00 | @as(u16, nn));
+                const val = self.memory_read_u8(0xFF00 + @as(u16, nn));
 
-                std.debug.print(" {x} ", .{nn});
+                if (self.debug)
+                    std.debug.print(" {x} ", .{nn});
                 self.registers.assign_single(SingleRegister.A, val);
             },
             0x01 => {

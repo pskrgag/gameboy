@@ -46,153 +46,13 @@ const Palette = packed struct {
     bit45: u2,
     bit67: u2,
 
-    pub fn get(self: *Palette, color: u2) u2 {
+    pub fn get(self: *const Palette, color: u2) u2 {
         return switch (color) {
             0 => self.bit01,
             1 => self.bit23,
             2 => self.bit45,
             3 => self.bit67,
         };
-    }
-};
-
-const Fifo = struct {
-    buffer: [16]u8,
-    len: usize,
-    in: usize,
-    out: usize,
-
-    const Self = @This();
-
-    pub const FifoError = error{
-        Full,
-        Empty,
-    };
-
-    pub fn default() Self {
-        return .{
-            .buffer = [_]u8{0} ** 16,
-            .len = 0,
-            .in = 0,
-            .out = 0,
-        };
-    }
-
-    pub fn push(self: *Self, data: u8) !void {
-        if (self.len < 16) {
-            self.buffer[self.in] = data;
-            self.in = (self.in + 1) % 16;
-
-            self.len += 1;
-        } else {
-            return FifoError.Full;
-        }
-    }
-
-    pub fn pop(self: *Self) !u8 {
-        if (self.len != 0) {
-            const res = self.buffer[self.out];
-
-            self.out = (self.out + 1) % 16;
-            self.len -= 1;
-            return res;
-        } else {
-            return FifoError.Empty;
-        }
-    }
-};
-
-const Fetcher = struct {
-    ticks: u8,
-    state: FetcherState,
-    ppu: ?*Ppu,
-    tile_id: u8,
-    tile_line: u8,
-    fifo: Fifo,
-    pixels: [8]u8,
-
-    const FetcherState = enum {
-        ReadID,
-        ReadData0,
-        ReadData1,
-        Push,
-    };
-
-    const Self = @This();
-
-    pub fn default() Self {
-        return Self{
-            .ticks = 0,
-            .state = FetcherState.ReadID,
-            .ppu = null,
-            .tile_id = 0,
-            .tile_line = 0,
-            .fifo = Fifo.default(),
-            .pixels = [_]u8{0} ** 8,
-        };
-    }
-
-    pub fn start(self: *Self, ppu: *Ppu) void {
-        self.ppu = ppu;
-
-        self.tile_line = ppu.y % 8;
-        self.state = FetcherState.ReadID;
-        self.fifo = Fifo.default();
-    }
-
-    fn read_data(self: *Self, low: bool) void {
-        const ppu = self.ppu orelse @panic("");
-        const data = ppu.get_tile_byte(self.tile_id, self.tile_line, low);
-
-        for (0..8) |bit| {
-            const cur_bit = data & (@as(u8, 1) << @truncate(bit));
-
-            if (low) {
-                self.pixels[bit] = @intFromBool(cur_bit != 0);
-            } else {
-                self.pixels[bit] |= @as(u8, @intFromBool(cur_bit != 0)) << 1;
-            }
-
-            std.debug.assert(self.pixels[bit] < 4);
-        }
-    }
-
-    pub fn tick(self: *Self) void {
-        const ppu = self.ppu orelse @panic("");
-
-        self.ticks += 1;
-
-        if (self.ticks != 2)
-            return;
-
-        self.ticks -= 2;
-
-        switch (self.state) {
-            FetcherState.ReadID => {
-                self.tile_id = ppu.get_tileid();
-                self.state = FetcherState.ReadData0;
-            },
-            FetcherState.ReadData0 => {
-                self.read_data(true);
-                self.state = FetcherState.ReadData1;
-            },
-            FetcherState.ReadData1 => {
-                self.read_data(false);
-                self.state = FetcherState.Push;
-            },
-            FetcherState.Push => {
-                if (self.fifo.len <= 16) {
-                    for (0..8) |i| {
-                        self.fifo.push(self.pixels[7 - i]) catch |err| {
-                            std.debug.print("Failed to push to fifo {any}", .{err});
-                            @panic("");
-                        };
-                    }
-
-                    self.state = FetcherState.ReadID;
-                }
-            },
-        }
     }
 };
 
@@ -211,10 +71,6 @@ pub const Ppu = struct {
     scy: u8,
     // Tick counter
     ticks: usize,
-    // Pixel fetcher
-    fetcher: Fetcher,
-    // Read to print pixels
-    next_pixel: LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = 32 }),
     // LY compare register
     lyc: u8,
     // IRQ on LY == LYC
@@ -227,6 +83,10 @@ pub const Ppu = struct {
     oamscan_irq: u1,
     // Palette for background
     bg_palette: Palette,
+    // Obj0 palette
+    obj0_palatte: Palette,
+    // Obj1 palette
+    obj1_palatte: Palette,
     // window y
     wy: u8,
     // window x
@@ -243,18 +103,11 @@ pub const Ppu = struct {
     pub const Black = Color{ .r = 15, .g = 56, .b = 15 };
     pub const ColorArray = [_]Color{ White, LightGreen, DarkGreen, Black };
 
-    pub const PpuStateEnum = enum(u8) {
+    pub const PpuState = enum(u8) {
         OAMScan = 2,
         PixelTransfer = 3,
         HBlank = 0,
         VBlank = 1,
-    };
-
-    pub const PpuState = union(PpuStateEnum) {
-        OAMScan: void,
-        PixelTransfer: [10]OAMEntry,
-        HBlank: void,
-        VBlank: void,
     };
 
     const BACKGROUND_START = 0x9800 - VRAM_BASE;
@@ -271,14 +124,14 @@ pub const Ppu = struct {
             .scy = 0,
             .oam = [_]OAMEntry{OAMEntry.default()} ** 40,
             .ticks = 4,
-            .fetcher = Fetcher.default(),
-            .next_pixel = LinearFifo(u8, std.fifo.LinearFifoBufferType{ .Static = 32 }).init(),
             .lyc = 0,
             .lyc_irq = 0,
             .hblank_irq = 0,
             .vblank_irq = 0,
             .oamscan_irq = 0,
             .bg_palette = @bitCast(@as(u8, 0b11100100)),
+            .obj1_palatte = @bitCast(@as(u8, 0b11100100)),
+            .obj0_palatte = @bitCast(@as(u8, 0b11100100)),
             .wy = 0,
             .wx = 0,
             .scanline = [_]Color{Self.White} ** (160),
@@ -305,19 +158,6 @@ pub const Ppu = struct {
     }
 
     pub fn get_tileid(self: *Self) u8 {
-        switch (self.state) {
-            PpuState.PixelTransfer => |array| {
-                for (array) |entry| {
-                    if (entry.x == 0)
-                        break;
-
-                    if (entry.x >= self.x and entry.x + 8 < self.x)
-                        return entry.tile;
-                }
-            },
-            else => @panic("Invalid state"),
-        }
-
         const base = self.tile_fetch_addr();
         return self.read(base);
     }
@@ -344,22 +184,60 @@ pub const Ppu = struct {
         return base;
     }
 
-    fn scan_oam(self: *Self) [10]OAMEntry {
+    fn tile_to_raw_colors(self: *Self, tile_num: u8, line: u8, rev: bool, palette: Palette) [8]Color {
+        var res = std.mem.zeroes([8]Color);
+
+        const byte1 = self.get_tile_byte(tile_num, line, true);
+        const byte2 = self.get_tile_byte(tile_num, line, false);
+
+        for (0..8) |byte| {
+            const bit1: u1 = @intFromBool((byte1 & (@as(u8, 1) << @truncate(byte))) != 0);
+            const bit2: u1 = @intFromBool((byte2 & (@as(u8, 1) << @truncate(byte))) != 0);
+            const color = @as(u2, bit1) | (@as(u2, bit2) << 1);
+
+            if (!rev) {
+                res[7 - byte] = Self.ColorArray[palette.get(color)];
+            } else {
+                res[byte] = Self.ColorArray[palette.get(color)];
+            }
+        }
+
+        return res;
+    }
+
+    fn render_sprites(self: *Self) void {
         var arr = std.mem.zeroes([10]OAMEntry);
         var idx: usize = 0;
 
         for (self.oam) |entry| {
-            if (entry.x > 0 and self.y + 16 >= entry.y and self.y + 16 < entry.y + 8) {
+            if (entry.x <= 0)
+                continue;
+
+            const real_y = entry.y - 16;
+            if (self.y >= real_y and self.y < real_y + 8) {
                 arr[idx] = entry;
                 idx += 1;
 
                 if (idx >= 10)
                     break;
-                @panic("hello");
             }
         }
 
-        return arr;
+        for (0..idx) |i| {
+            const sprite = arr[i];
+            const real_y = sprite.y - 16;
+            const real_x = sprite.x -% 8;
+            const line = if (sprite.attrs.yflip == 0) self.y - real_y else 8 - (self.y - real_y);
+            const pal = if (sprite.attrs.palette == 1) self.obj1_palatte else self.obj0_palatte;
+
+            for (self.tile_to_raw_colors(sprite.tile, line, sprite.attrs.xflip == 1, pal), 0..) |color, byte| {
+                const b: u8 = @intCast(byte);
+                const x = real_x +% b;
+
+                if (x < 160)
+                    self.scanline[@intCast(x)] = color;
+            }
+        }
     }
 
     fn render_background(self: *Self) void {
@@ -374,15 +252,8 @@ pub const Ppu = struct {
         for (0..20) |i| {
             const tile_num = self.read(base + @as(u16, @truncate(i)));
 
-            const byte1 = self.get_tile_byte(tile_num, self.y % 8, true);
-            const byte2 = self.get_tile_byte(tile_num, self.y % 8, false);
-
-            for (0..8) |byte| {
-                const bit1: u1 = @intFromBool((byte1 & (@as(u8, 1) << @truncate(byte))) != 0);
-                const bit2: u1 = @intFromBool((byte2 & (@as(u8, 1) << @truncate(byte))) != 0);
-                const color = @as(u2, bit1) | (@as(u2, bit2) << 1);
-
-                self.scanline[i * 8 + (7 - byte)] = Self.ColorArray[self.bg_palette.get(color)];
+            for (self.tile_to_raw_colors(tile_num, self.y % 8, false, self.bg_palette), 0..) |color, byte| {
+                self.scanline[i * 8 + byte] = color;
             }
         }
     }
@@ -409,11 +280,8 @@ pub const Ppu = struct {
             switch (self.state) {
                 PpuState.OAMScan => {
                     if (self.ticks == 80) {
-                        self.state = PpuState{
-                            .PixelTransfer = self.scan_oam(),
-                        };
+                        self.state = PpuState.PixelTransfer;
                         self.x = 0;
-                        self.fetcher.start(self);
                     }
                 },
                 PpuState.PixelTransfer => {
@@ -421,7 +289,12 @@ pub const Ppu = struct {
                         // Render current scan line
                         self.render_background();
                         self.render_window();
+                        self.render_sprites();
                         self.scanline_read = true;
+
+                        if (self.hblank_irq == 1)
+                            res |= 1 << 1;
+
                         self.state = PpuState.HBlank;
                     }
                 },
@@ -433,8 +306,13 @@ pub const Ppu = struct {
                         // Goto VBlank mode
                         if (self.y == 144) {
                             self.state = PpuState.VBlank;
+
+                            // VBlank IRQ
+                            res |= 1 << 0;
+
+                            // Stat IRQ
                             if (self.vblank_irq == 1)
-                                res |= (1 << 0);
+                                res |= 1 << 1;
                         } else {
                             self.state = PpuState.OAMScan;
                         }
@@ -448,8 +326,10 @@ pub const Ppu = struct {
                     }
 
                     if (self.y == 0) {
+                        if (self.oamscan_irq == 1)
+                            res |= 1 << 1;
+
                         self.state = PpuState.OAMScan;
-                        std.debug.assert(self.next_pixel.count == 0);
                     }
                 },
             }
@@ -523,8 +403,8 @@ pub const Ppu = struct {
             0xFF45 => self.lyc = val,
             0xFF46 => {},
             0xFF47 => self.bg_palette = @bitCast(val),
-            // OBJ palettes
-            0xFF48, 0xFF49 => {},
+            0xFF48 => self.obj0_palatte = @bitCast(val),
+            0xFF49 => self.obj1_palatte = @bitCast(val),
             0xFF68 => {},
             0xFF69 => {},
             0xFF4F => {},

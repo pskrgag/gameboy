@@ -1,5 +1,4 @@
 const std = @import("std");
-const SDL = @import("sdl2"); // Created in build.zig by using ;
 const Gameboy = @import("gameboy.zig").Gameboy;
 
 pub fn main() !void {
@@ -7,12 +6,22 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    // var file = try std.fs.cwd().openFile("test-roms/cpu_instrs/individual/02-interrupts.gb", .{});
-    // var file = try std.fs.cwd().openFile("/home/paskripkin/Downloads/Tetris (World) (Rev A).gb", .{});
-    var file = try std.fs.cwd().openFile("/home/paskripkin/Downloads/Super Mario Land (World) (Rev 1).gb", .{});
+    const argv = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, argv);
+
+    if (argv.len < 2) {
+        std.debug.print("Please pass path to rom\n", .{});
+        return;
+    }
+
+    const rom_path = argv[1];
+    var file = try std.fs.cwd().openFile(rom_path, .{});
     defer file.close();
 
-    const code = try file.readToEndAlloc(allocator, 0x10000);
+    const stats = try file.stat();
+    const file_size = stats.size;
+
+    const code = try file.readToEndAlloc(allocator, file_size);
     defer allocator.free(code);
 
     var gb = Gameboy.default(code);

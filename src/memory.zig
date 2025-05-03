@@ -8,14 +8,17 @@ const Joypad = @import("devices/joystick.zig").Joypad;
 const ROM_SIZE = 0x8000;
 const ROM_BASE = 0x0;
 
-const INTERNAL_RAM_BASE = 0xFF80;
-const INTERNAL_RAM_SIZE = 0xFFFF - 0xFF80;
+const HRAM_BASE = 0xFF80;
+const HRAM_SIZE = 0xFFFF - 0xFF80;
 
-const INTERNAL_RAM8K_BASE = 0xA000;
-const INTERNAL_RAM8K_SIZE = 0x4000;
+const INTERNAL_RAM_BASE = 0xC000;
+const INTERNAL_RAM_SIZE = 0x2000;
 
-const INTERNAL_RAM8K_ECHO_BASE = 0xE000;
-const INTERNAL_RAM8K_ECHO_SIZE = 0x1e00;
+const EXTERNAL_RAM_BASE = 0xA000;
+const EXTERNAL_RAM_SIZE = 0x2000;
+
+const INTERNAL_RAM_ECHO_BASE = 0xE000;
+const INTERNAL_RAM_ECHO_SIZE = 0x1e00;
 
 const VIDEO_RAM_BASE = 0x8000;
 const VIDEO_RAM_SIZE = 0x2000;
@@ -44,9 +47,9 @@ const OAM_START = 0xFE00;
 const OAM_SIZE = 40 * 4;
 
 pub const Memory = struct {
-    rom: [ROM_SIZE]u8,
+    rom: Cartridge,
     ram: [INTERNAL_RAM_SIZE]u8,
-    ram8k: [INTERNAL_RAM8K_SIZE]u8,
+    hram: [HRAM_SIZE]u8,
     timer: Timer,
     ppu: Ppu,
     serial: Serial,
@@ -74,9 +77,9 @@ pub const Memory = struct {
 
     pub fn default() Self {
         return Self{
-            .rom = [_]u8{0} ** (ROM_SIZE),
+            .rom = Cartridge.default(),
             .ram = [_]u8{0} ** (INTERNAL_RAM_SIZE),
-            .ram8k = [_]u8{0} ** (INTERNAL_RAM8K_SIZE),
+            .hram = [_]u8{0} ** (HRAM_SIZE),
             .timer = Timer.default(),
             .ppu = Ppu.default(),
             .ie = 0,
@@ -102,7 +105,7 @@ pub const Memory = struct {
     pub fn new(rom: []u8) Self {
         var def = Self.default();
 
-        @memcpy(def.rom[0..rom.len], rom);
+        def.rom = Cartridge.from_data(rom);
         return def;
     }
 
@@ -111,22 +114,20 @@ pub const Memory = struct {
 
         switch (addr) {
             ROM_BASE...ROM_BASE + ROM_SIZE - 1 => {
-                std.debug.assert(self.rom[0x147] == 0);
+                self.rom.write(addr, @truncate(val));
             },
             INTERNAL_RAM_BASE...INTERNAL_RAM_BASE + INTERNAL_RAM_SIZE - 1 => {
                 const idx = addr - INTERNAL_RAM_BASE;
 
                 @memcpy(self.ram[idx .. idx + type_size], std.mem.asBytes(&val));
             },
-            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE - 1 => {
-                const idx = addr - INTERNAL_RAM8K_BASE;
-
-                @memcpy(self.ram8k[idx .. idx + type_size], std.mem.asBytes(&val));
+            EXTERNAL_RAM_BASE...EXTERNAL_RAM_BASE + EXTERNAL_RAM_SIZE - 1 => {
+                self.rom.write(addr, @truncate(val));
             },
-            INTERNAL_RAM8K_ECHO_BASE...INTERNAL_RAM8K_ECHO_BASE + INTERNAL_RAM8K_ECHO_SIZE - 1 => {
-                const idx = 0x2000 + (addr - INTERNAL_RAM8K_ECHO_BASE);
+            INTERNAL_RAM_ECHO_BASE...INTERNAL_RAM_ECHO_BASE + INTERNAL_RAM_ECHO_SIZE - 1 => {
+                const idx = addr - INTERNAL_RAM_ECHO_BASE;
 
-                @memcpy(self.ram8k[idx .. idx + type_size], std.mem.asBytes(&val));
+                @memcpy(self.ram[idx .. idx + type_size], std.mem.asBytes(&val));
             },
             VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE - 1, 0xFF68, 0xFF69, 0xFF4F => {
                 self.ppu.write(addr, @truncate(val));
@@ -162,6 +163,11 @@ pub const Memory = struct {
                     self.write(u8, dst + @as(u16, @truncate(i)), data);
                 }
             },
+            HRAM_BASE...HRAM_BASE + HRAM_SIZE - 1 => {
+                const idx = addr - HRAM_BASE;
+
+                @memcpy(self.hram[idx .. idx + type_size], std.mem.asBytes(&val));
+            },
             else => {
                 // std.debug.print("Write to unknown memory: Addr {x}\n", .{addr});
                 // @panic("Write to unknown memory");
@@ -175,24 +181,20 @@ pub const Memory = struct {
 
         switch (addr) {
             ROM_BASE...ROM_BASE + ROM_SIZE - 1 => {
-                const idx = addr - ROM_BASE;
-
-                @memcpy(std.mem.asBytes(&res), self.rom[idx .. idx + type_size]);
+                return self.rom.read(addr);
             },
             INTERNAL_RAM_BASE...INTERNAL_RAM_BASE + INTERNAL_RAM_SIZE - 1 => {
                 const idx = addr - INTERNAL_RAM_BASE;
 
                 @memcpy(std.mem.asBytes(&res), self.ram[idx .. idx + type_size]);
             },
-            INTERNAL_RAM8K_BASE...INTERNAL_RAM8K_BASE + INTERNAL_RAM8K_SIZE - 1 => {
-                const idx = addr - INTERNAL_RAM8K_BASE;
-
-                @memcpy(std.mem.asBytes(&res), self.ram8k[idx .. idx + type_size]);
+            EXTERNAL_RAM_BASE...EXTERNAL_RAM_BASE + EXTERNAL_RAM_SIZE - 1 => {
+                res = self.rom.read(addr);
             },
-            INTERNAL_RAM8K_ECHO_BASE...INTERNAL_RAM8K_ECHO_BASE + INTERNAL_RAM8K_ECHO_SIZE - 1 => {
-                const idx = 0x2000 + (addr - INTERNAL_RAM8K_ECHO_BASE);
+            INTERNAL_RAM_ECHO_BASE...INTERNAL_RAM_ECHO_BASE + INTERNAL_RAM_ECHO_SIZE - 1 => {
+                const idx = addr - INTERNAL_RAM_ECHO_BASE;
 
-                @memcpy(std.mem.asBytes(&res), self.ram8k[idx .. idx + type_size]);
+                @memcpy(std.mem.asBytes(&res), self.ram[idx .. idx + type_size]);
             },
             VIDEO_RAM_BASE...VIDEO_RAM_BASE + VIDEO_RAM_SIZE - 1 => {
                 res = self.ppu.read(addr);
@@ -210,6 +212,11 @@ pub const Memory = struct {
                 res = self.joypad.read(addr);
             },
             SERIAL_BEGIN...SERIAL_BEGIN + SERIAL_SIZE - 1 => res = self.serial.read(addr),
+            HRAM_BASE...HRAM_BASE + HRAM_SIZE - 1 => {
+                const idx = addr - HRAM_BASE;
+
+                @memcpy(std.mem.asBytes(&res), self.hram[idx .. idx + type_size]);
+            },
             else => {
                 // std.debug.print("Read of unknown memory {x}\n", .{addr});
                 res = 0xFF;

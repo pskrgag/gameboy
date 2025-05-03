@@ -78,7 +78,6 @@ pub const Joypad = struct {
         }
 
         self.event();
-        std.debug.print("{any} {any}\n", .{ self, action });
     }
 
     fn event(self: *Self) void {

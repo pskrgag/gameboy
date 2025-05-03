@@ -7,7 +7,7 @@ const VRAM_BASE = 0x8000;
 const VRAM_SIZE = 0x2000;
 
 const OAM_BASE = 0xFE00;
-const OAM_SIZE = 40 * 4;
+const OAM_SIZE = 40 * @sizeOf(OAMEntry);
 
 const OAMEntry = packed struct {
     // Y position
@@ -17,7 +17,7 @@ const OAMEntry = packed struct {
     // The tile index
     tile: u8,
     attrs: packed struct {
-        _unused: u3,
+        _unused: u4,
 
         // 0 = OBP0, 1 = OBP1
         palette: u1,
@@ -46,12 +46,23 @@ const Palette = packed struct {
     bit45: u2,
     bit67: u2,
 
-    pub fn get(self: *const Palette, color: u2) u2 {
+    pub fn get(self: *const Palette, color: u2) ?u2 {
         return switch (color) {
             0 => self.bit01,
             1 => self.bit23,
             2 => self.bit45,
             3 => self.bit67,
+        };
+    }
+};
+
+const Obj0Pal = packed struct {
+    pal: Palette,
+
+    pub fn get(self: *const Obj0Pal, color: u2) ?u2 {
+        return switch (color) {
+            0 => null,
+            else => self.pal.get(color),
         };
     }
 };
@@ -84,7 +95,7 @@ pub const Ppu = struct {
     // Palette for background
     bg_palette: Palette,
     // Obj0 palette
-    obj0_palatte: Palette,
+    obj0_palatte: Obj0Pal,
     // Obj1 palette
     obj1_palatte: Palette,
     // window y
@@ -157,103 +168,126 @@ pub const Ppu = struct {
         return 0;
     }
 
-    pub fn get_tileid(self: *Self) u8 {
-        const base = self.tile_fetch_addr();
-        return self.read(base);
-    }
+    fn tile_to_raw_colors(self: *Self, tile_num: u8, line: u8, rev: bool, palette: anytype, force8000: bool) [8]?Color {
+        var res = [_]?Color{null} ** 8;
 
-    fn tile_fetch_addr(self: *Self) u16 {
-        const is_window = (self.control & (1 << 5)) != 0;
-        var base: u16 = 0;
-
-        std.debug.assert(!is_window);
-
-        if (is_window and self.wy == self.y and self.x == self.wx - 7) {
-            const window_map = (self.control & (1 << 6)) != 0;
-
-            base = if (window_map) 0x9C00 else 0x9800;
-        } else {
-            const bg_map = (self.control & (1 << 3)) != 0;
-            // Reading background
-            base = if (!bg_map) 0x9800 else 0x9C00;
-
-            const y = self.y +% self.scy;
-            base += (@as(u16, y) / 8) * 32 + @as(u16, self.x) / 8;
-        }
-
-        return base;
-    }
-
-    fn tile_to_raw_colors(self: *Self, tile_num: u8, line: u8, rev: bool, palette: Palette) [8]Color {
-        var res = std.mem.zeroes([8]Color);
-
-        const byte1 = self.get_tile_byte(tile_num, line, true);
-        const byte2 = self.get_tile_byte(tile_num, line, false);
+        const byte1 = self.get_tile_byte(tile_num, line, true, force8000);
+        const byte2 = self.get_tile_byte(tile_num, line, false, force8000);
 
         for (0..8) |byte| {
             const bit1: u1 = @intFromBool((byte1 & (@as(u8, 1) << @truncate(byte))) != 0);
             const bit2: u1 = @intFromBool((byte2 & (@as(u8, 1) << @truncate(byte))) != 0);
-            const color = @as(u2, bit1) | (@as(u2, bit2) << 1);
+            const raw_color = @as(u2, bit1) | (@as(u2, bit2) << 1);
+            const color = palette.get(raw_color);
 
-            if (!rev) {
-                res[7 - byte] = Self.ColorArray[palette.get(color)];
-            } else {
-                res[byte] = Self.ColorArray[palette.get(color)];
+            if (color != null) {
+                if (!rev) {
+                    res[7 - byte] = Self.ColorArray[color.?];
+                } else {
+                    res[byte] = Self.ColorArray[color.?];
+                }
             }
         }
 
         return res;
     }
 
+    const OAMEntrySort = struct {
+        entry: OAMEntry,
+        pos: usize,
+    };
+
+    fn sprites_sort(ctx: void, lhs: OAMEntrySort, rhs: OAMEntrySort) bool {
+        _ = ctx;
+        if (lhs.entry.x != rhs.entry.x)
+            return rhs.entry.x < lhs.entry.x;
+
+        return rhs.pos < lhs.pos;
+    }
+
     fn render_sprites(self: *Self) void {
-        var arr = std.mem.zeroes([10]OAMEntry);
+        const is_on = (self.control & 0b10) != 0;
+
+        if (!is_on)
+            return;
+
+        var arr = std.mem.zeroes([10]OAMEntrySort);
         var idx: usize = 0;
+        const long_mode = (self.control & (1 << 2)) != 0;
+        const sprite_height: u8 = if (long_mode) 16 else 8;
 
         for (self.oam) |entry| {
-            if (entry.x <= 0)
+            if (entry.x < 0)
                 continue;
 
-            const real_y = entry.y - 16;
-            if (self.y >= real_y and self.y < real_y + 8) {
-                arr[idx] = entry;
+            const real_y = entry.y -% 16;
+            if (self.y >= real_y and self.y < real_y + sprite_height) {
+                arr[idx] = .{ .entry = entry, .pos = idx };
                 idx += 1;
 
+                std.debug.assert(entry.attrs.prio == 0);
                 if (idx >= 10)
                     break;
             }
         }
 
+        std.mem.sort(OAMEntrySort, arr[0..idx], {}, Self.sprites_sort);
+
         for (0..idx) |i| {
-            const sprite = arr[i];
+            const sprite = arr[i].entry;
             const real_y = sprite.y - 16;
             const real_x = sprite.x -% 8;
-            const line = if (sprite.attrs.yflip == 0) self.y - real_y else 8 - (self.y - real_y);
-            const pal = if (sprite.attrs.palette == 1) self.obj1_palatte else self.obj0_palatte;
 
-            for (self.tile_to_raw_colors(sprite.tile, line, sprite.attrs.xflip == 1, pal), 0..) |color, byte| {
-                const b: u8 = @intCast(byte);
-                const x = real_x +% b;
+            // Flip y
+            const line = if (sprite.attrs.yflip == 0) self.y - real_y else sprite_height - (self.y - real_y);
+            // Choose tilenum
+            const tile = if (long_mode) sprite.tile ^ 1 else sprite.tile;
 
-                if (x < 160)
-                    self.scanline[@intCast(x)] = color;
+            // Obj0 palette defined 0 as transparent. Since i don't wanna mess with interfaces
+            // and i cannot save pal to separate variable (because of distinct types) i have to
+            // call tile_to_raw_colors 2 times (which looks ugly but works)
+            const colors = if (sprite.attrs.palette == 1) self.tile_to_raw_colors(tile, line, sprite.attrs.xflip == 1, self.obj1_palatte, true) else self.tile_to_raw_colors(tile, line, sprite.attrs.xflip == 1, self.obj0_palatte, true);
+
+            for (colors, 0..) |color, byte| {
+                if (color != null) {
+                    const b: u8 = @intCast(byte);
+                    const x = real_x + b;
+
+                    if (x < 160) {
+                        const cur_color = self.scanline[@intCast(x)];
+                        const zero_color = Self.ColorArray[self.bg_palette.get(0).?];
+
+                        // If priority is set and current color is non-zero -- don't render
+                        if (sprite.attrs.prio == 1 and !std.meta.eql(cur_color, zero_color)) {
+                            continue;
+                        }
+
+                        self.scanline[@intCast(x)] = color.?;
+                    }
+                }
             }
         }
     }
 
     fn render_background(self: *Self) void {
+        const is_on = (self.control & 0b1) != 0;
+
+        if (!is_on)
+            return;
+
         const bg_map = (self.control & (1 << 3)) != 0;
         var base: u16 = if (!bg_map) 0x9800 else 0x9C00;
 
         const y = self.y +% self.scy;
 
         // Base address for reading tilenum
-        base += (@as(u16, y) / 8) * 32;
+        base += (@as(u16, y) / 8) * 32 + (self.scx / 8);
 
         for (0..20) |i| {
             const tile_num = self.read(base + @as(u16, @truncate(i)));
 
-            for (self.tile_to_raw_colors(tile_num, self.y % 8, false, self.bg_palette), 0..) |color, byte| {
-                self.scanline[i * 8 + byte] = color;
+            for (self.tile_to_raw_colors(tile_num, self.y % 8, false, self.bg_palette, false), 0..) |color, byte| {
+                self.scanline[i * 8 + byte] = color.?;
             }
         }
     }
@@ -338,10 +372,8 @@ pub const Ppu = struct {
         return res;
     }
 
-    fn get_tile_byte(self: *Self, idx: u8, line: u8, low: bool) u8 {
+    fn get_tile_byte(self: *Self, idx: u8, line: u8, low: bool, force8000: bool) u8 {
         const is_set = (self.control & (1 << 4)) != 0;
-
-        std.debug.assert(line < 8);
 
         // Tile is 16 byte long, each 2 bytes represent one line.
         // tile_id * 2 gives offset to start of the tile, while self.tile_line * 2 gives
@@ -349,7 +381,7 @@ pub const Ppu = struct {
         //
         // In 8000 method idx is used as positive integer, however in 0x8800 method it's used
         // as signed idx.
-        if (is_set) {
+        if (is_set or force8000) {
             const off = (0x8000 - VRAM_BASE) + @as(usize, idx) * 16 + line * 2 + @intFromBool(!low);
 
             return self.vram[off];
@@ -408,10 +440,10 @@ pub const Ppu = struct {
             0xFF68 => {},
             0xFF69 => {},
             0xFF4F => {},
-            VRAM_BASE...VRAM_BASE + VRAM_SIZE => {
+            VRAM_BASE...VRAM_BASE + VRAM_SIZE - 1 => {
                 self.vram[addr - VRAM_BASE] = val;
             },
-            OAM_BASE...OAM_BASE + OAM_SIZE => {
+            OAM_BASE...OAM_BASE + OAM_SIZE - 1 => {
                 std.mem.sliceAsBytes(&self.oam)[addr - OAM_BASE] = val;
             },
             else => {
@@ -434,6 +466,7 @@ pub const Ppu = struct {
                 res |= @as(u8, self.vblank_irq) << 4;
                 res |= @as(u8, self.oamscan_irq) << 5;
                 res |= @as(u8, self.lyc_irq) << 6;
+                res |= 1 << 7;
 
                 return res;
             },

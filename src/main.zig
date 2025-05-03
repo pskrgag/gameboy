@@ -8,10 +8,11 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     // var file = try std.fs.cwd().openFile("test-roms/cpu_instrs/individual/02-interrupts.gb", .{});
-    var file = try std.fs.cwd().openFile("/home/paskripkin/Downloads/Tetris (World) (Rev A).gb", .{});
+    // var file = try std.fs.cwd().openFile("/home/paskripkin/Downloads/Tetris (World) (Rev A).gb", .{});
+    var file = try std.fs.cwd().openFile("/home/paskripkin/Downloads/Super Mario Land (World) (Rev 1).gb", .{});
     defer file.close();
 
-    const code = try file.readToEndAlloc(allocator, 0x8000);
+    const code = try file.readToEndAlloc(allocator, 0x10000);
     defer allocator.free(code);
 
     var gb = Gameboy.default(code);

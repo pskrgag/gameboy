@@ -19,6 +19,7 @@ pub const Gameboy = struct {
     window: SDL.Window,
     renderer: SDL.Renderer,
     pixels: u16,
+    stop: bool,
 
     const Self = @This();
 
@@ -54,11 +55,12 @@ pub const Gameboy = struct {
             .window = window,
             .renderer = renderer,
             .pixels = 0,
+            .stop = false,
         };
     }
 
     pub fn run(self: *Self) !void {
-        while (true) {
+        while (!self.stop) {
             try self.tick();
         }
     }
@@ -81,7 +83,7 @@ pub const Gameboy = struct {
         // Check SDL events
         while (SDL.pollEvent()) |ev| {
             switch (ev) {
-                .quit => std.process.cleanExit(),
+                .quit => self.stop = true,
                 .key_down => |key| {
                     const mapped = Self.sdl_to_gameboy(key);
 

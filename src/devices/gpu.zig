@@ -228,7 +228,6 @@ pub const Ppu = struct {
                 arr[idx] = .{ .entry = entry, .pos = idx };
                 idx += 1;
 
-                std.debug.assert(entry.attrs.prio == 0);
                 if (idx >= 10)
                     break;
             }

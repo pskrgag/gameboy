@@ -200,7 +200,7 @@ pub const Memory = struct {
             SOUND_BASE...SOUND_BASE + SOUND_SIZE => {
                 res = 0;
             },
-            0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49 => res = self.ppu.read(addr),
+            0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49, 0xFF4A, 0xFF4B => res = self.ppu.read(addr),
             JOYPAD_BEGIN...JOYPAD_BEGIN + JOYPAD_SIZE - 1 => {
                 res = self.joypad.read(addr);
             },

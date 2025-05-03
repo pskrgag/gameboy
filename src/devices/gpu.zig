@@ -292,13 +292,19 @@ pub const Ppu = struct {
         // Base address of the current row
         const row_addres = base + (@as(u16, y) / 8) * 32;
 
-        for (0..20) |i| {
+        // There are 20 tiles in a line, however because of per-pixel scroll of
+        // scx, we have to fetch more in case of scx scroll in between tile
+        for (0..21) |i| {
             // If tile get oob if current row, then wrap around
             const row_offset = (self.scx / 8 + i) & 31;
             const tile_num = self.read(@truncate(row_addres + row_offset));
 
             for (self.tile_to_raw_colors(tile_num, self.y % 8, false, self.bg_palette, false), 0..) |color, byte| {
-                self.scanline[i * 8 + byte] = color.?;
+                const pixel = (i * 8 + byte -% self.scx % 8);
+
+                if (pixel < 160) {
+                    self.scanline[pixel] = color.?;
+                }
             }
         }
     }
@@ -325,7 +331,9 @@ pub const Ppu = struct {
         // X position of the window
         const x = self.wx -% 7;
 
-        for (0..20) |i| {
+        // There are 20 tiles in a line, however because of per-pixel scroll of
+        // wx, we have to fetch more in case of wx scroll in between tile
+        for (0..21) |i| {
             const tile_num = self.read(@truncate(row_addres + i));
 
             // NOTE: use y rather than self.y to determine line, since widow offset may be placed within tile bounds
@@ -516,6 +524,8 @@ pub const Ppu = struct {
             0xFF43 => return self.scx,
             0xFF42 => return self.scy,
             0xFF44 => return self.y,
+            0xFF4A => return self.wy,
+            0xFF4B => return self.wx,
             0xFF45 => return self.lyc,
             0xFF47 => return @bitCast(self.bg_palette),
             VRAM_BASE...VRAM_BASE + VRAM_SIZE - 1 => return self.vram[addr - VRAM_BASE],

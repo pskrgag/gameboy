@@ -9,7 +9,7 @@ const Key = @import("devices/joystick.zig").Key;
 const WINDOW_HEIGTH = 144;
 const WINDOW_WIDTH = 160;
 
-const TILE_SCALE = 10;
+const TILE_SCALE = 12;
 
 const DEBUG_WINDOW_HEIGTH = WINDOW_HEIGTH * TILE_SCALE;
 const DEBUG_WINDOW_WIDTH = WINDOW_WIDTH * TILE_SCALE;
@@ -105,7 +105,6 @@ pub const Gameboy = struct {
         if (scanline != null) {
             for (scanline.?, 0..) |color, x| {
                 const y = self.cpu.memory.ppu.y;
-                // std.debug.assert(self.cpu.memory.ppu.y == self.y);
 
                 const rect =
                     SDL.Rectangle{

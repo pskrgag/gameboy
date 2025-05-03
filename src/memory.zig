@@ -138,16 +138,9 @@ pub const Memory = struct {
             TIMER_BASE...TIMER_BASE + TIMER_SIZE - 1 => {
                 self.timer.write(addr, @truncate(val));
             },
-            0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49 => self.ppu.write(addr, @truncate(val)),
+            0xFF40, 0xFF41, 0xFF42, 0xFF43, 0xFF44, 0xFF45, 0xFF47, 0xFF48, 0xFF49, 0xFF4A, 0xFF4B => self.ppu.write(addr, @truncate(val)),
             IE_REG => self.ie = @truncate(val),
-            IF_REG => {
-                if (val & (0b1111 << 4) != 0) {
-                    std.debug.print("{x}", .{val});
-                    @panic("{}");
-                }
-
-                self.iff = @truncate(val);
-            },
+            IF_REG => self.iff = @truncate(val),
             SOUND_BASE...SOUND_BASE + SOUND_SIZE - 1 => {},
             JOYPAD_BEGIN...JOYPAD_BEGIN + JOYPAD_SIZE - 1 => self.joypad.write(addr, @truncate(val)),
             SERIAL_BEGIN...SERIAL_BEGIN + SERIAL_SIZE - 1 => self.serial.write(addr, @truncate(val)),

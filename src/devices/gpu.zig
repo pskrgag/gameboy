@@ -207,6 +207,7 @@ pub const Ppu = struct {
 
     fn render_sprites(self: *Self) void {
         const is_on = (self.control & 0b10) != 0;
+        const current_y: i16 = @intCast(self.y);
 
         if (!is_on)
             return;
@@ -217,11 +218,13 @@ pub const Ppu = struct {
         const sprite_height: u8 = if (long_mode) 16 else 8;
 
         for (self.oam) |entry| {
+            const sprite_y: i16 = @intCast(entry.y);
+
             if (entry.x < 0)
                 continue;
 
-            const real_y = entry.y -% 16;
-            if (self.y >= real_y and self.y < real_y + sprite_height) {
+            const real_y = sprite_y - 16;
+            if (current_y >= real_y and current_y < real_y + sprite_height) {
                 arr[idx] = .{ .entry = entry, .pos = idx };
                 idx += 1;
 
@@ -235,25 +238,31 @@ pub const Ppu = struct {
 
         for (0..idx) |i| {
             const sprite = arr[i].entry;
-            const real_y = sprite.y - 16;
-            const real_x = sprite.x -% 8;
+
+            const sprite_y: i16 = @intCast(sprite.y);
+            const sprite_x: i16 = @intCast(sprite.x);
+
+            const real_y = sprite_y - 16;
+            const real_x = sprite_x - 8;
 
             // Flip y
             const line = if (sprite.attrs.yflip == 0) self.y - real_y else sprite_height - (self.y - real_y);
             // Choose tilenum
             const tile = if (long_mode) sprite.tile ^ 1 else sprite.tile;
+            // Xflip
+            const xflip = sprite.attrs.xflip == 1;
 
             // Obj0 palette defined 0 as transparent. Since i don't wanna mess with interfaces
             // and i cannot save pal to separate variable (because of distinct types) i have to
             // call tile_to_raw_colors 2 times (which looks ugly but works)
-            const colors = if (sprite.attrs.palette == 1) self.tile_to_raw_colors(tile, line, sprite.attrs.xflip == 1, self.obj1_palatte, true) else self.tile_to_raw_colors(tile, line, sprite.attrs.xflip == 1, self.obj0_palatte, true);
+            const colors = if (sprite.attrs.palette == 1) self.tile_to_raw_colors(tile, @intCast(line), xflip, self.obj1_palatte, true) else self.tile_to_raw_colors(tile, @intCast(line), xflip, self.obj0_palatte, true);
 
             for (colors, 0..) |color, byte| {
                 if (color != null) {
                     const b: u8 = @intCast(byte);
                     const x = real_x + b;
 
-                    if (x < 160) {
+                    if (x > 0 and x < 160) {
                         const cur_color = self.scanline[@intCast(x)];
                         const zero_color = Self.ColorArray[self.bg_palette.get(0).?];
 
@@ -276,15 +285,17 @@ pub const Ppu = struct {
             return;
 
         const bg_map = (self.control & (1 << 3)) != 0;
-        var base: u16 = if (!bg_map) 0x9800 else 0x9C00;
+        const base: u16 = if (!bg_map) 0x9800 else 0x9C00;
 
         const y = self.y +% self.scy;
 
-        // Base address for reading tilenum
-        base += (@as(u16, y) / 8) * 32 + (self.scx / 8);
+        // Base address of the current row
+        const row_addres = base + (@as(u16, y) / 8) * 32;
 
         for (0..20) |i| {
-            const tile_num = self.read(base + @as(u16, @truncate(i)));
+            // If tile get oob if current row, then wrap around
+            const row_offset = (self.scx / 8 + i) & 31;
+            const tile_num = self.read(@truncate(row_addres + row_offset));
 
             for (self.tile_to_raw_colors(tile_num, self.y % 8, false, self.bg_palette, false), 0..) |color, byte| {
                 self.scanline[i * 8 + byte] = color.?;
@@ -298,7 +309,34 @@ pub const Ppu = struct {
         if (!is_window)
             return;
 
-        @panic("");
+        // Window is not visible
+        if (self.wy > self.y)
+            return;
+
+        const window_map = (self.control & (1 << 6)) != 0;
+        const base: u16 = if (!window_map) 0x9800 else 0x9C00;
+
+        // Line in the window buffer
+        const y = self.y - self.wy;
+
+        // Base address of the current row
+        const row_addres = base + (@as(u16, y) / 8) * 32;
+
+        // X position of the window
+        const x = self.wx -% 7;
+
+        for (0..20) |i| {
+            const tile_num = self.read(@truncate(row_addres + i));
+
+            // NOTE: use y rather than self.y to determine line, since widow offset may be placed within tile bounds
+            for (self.tile_to_raw_colors(tile_num, y % 8, false, self.bg_palette, false), 0..) |color, byte| {
+                const pixel = i * 8 + byte + x;
+
+                if (pixel < 160) {
+                    self.scanline[pixel] = color.?;
+                }
+            }
+        }
     }
 
     pub fn tick(self: *Self, ticks: u8) u8 {
@@ -429,14 +467,19 @@ pub const Ppu = struct {
                 self.vblank_irq = @intFromBool((val & (1 << 4)) != 0);
                 self.oamscan_irq = @intFromBool((val & (1 << 5)) != 0);
             },
-            0xFF43 => self.scx = val,
-            0xFF42 => self.scy = val,
+            0xFF43 => {
+                self.scx = val;
+            },
+            0xFF42 => {
+                self.scy = val;
+            },
             0xFF44 => self.y = 0,
             0xFF45 => self.lyc = val,
-            0xFF46 => {},
             0xFF47 => self.bg_palette = @bitCast(val),
             0xFF48 => self.obj0_palatte = @bitCast(val),
             0xFF49 => self.obj1_palatte = @bitCast(val),
+            0xFF4A => self.wy = val,
+            0xFF4B => self.wx = val,
             0xFF68 => {},
             0xFF69 => {},
             0xFF4F => {},
@@ -475,7 +518,7 @@ pub const Ppu = struct {
             0xFF44 => return self.y,
             0xFF45 => return self.lyc,
             0xFF47 => return @bitCast(self.bg_palette),
-            VRAM_BASE...VRAM_BASE + VRAM_SIZE => return self.vram[addr - VRAM_BASE],
+            VRAM_BASE...VRAM_BASE + VRAM_SIZE - 1 => return self.vram[addr - VRAM_BASE],
             else => {
                 std.debug.print("addr - {x}\n", .{addr});
                 @panic("");

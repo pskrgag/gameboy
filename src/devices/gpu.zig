@@ -9,6 +9,8 @@ const VRAM_SIZE = 0x2000;
 const OAM_BASE = 0xFE00;
 const OAM_SIZE = 40 * @sizeOf(OAMEntry);
 
+const SCANLINE_SIZE = 160;
+
 const OAMEntry = packed struct {
     // Y position
     y: u8,
@@ -103,7 +105,7 @@ pub const Ppu = struct {
     // window x
     wx: u8,
     // Rendered scanline
-    scanline: [160]Color,
+    scanline: [SCANLINE_SIZE]Color,
     // Indicates that scanline is ready
     scanline_read: bool,
 
@@ -145,12 +147,12 @@ pub const Ppu = struct {
             .obj0_palatte = @bitCast(@as(u8, 0b11100100)),
             .wy = 0,
             .wx = 0,
-            .scanline = [_]Color{Self.White} ** (160),
+            .scanline = [_]Color{Self.White} ** (SCANLINE_SIZE),
             .scanline_read = false,
         };
     }
 
-    pub fn pop_scanline(self: *Self) ?[160]Color {
+    pub fn pop_scanline(self: *Self) ?[SCANLINE_SIZE]Color {
         if (self.scanline_read) {
             self.scanline_read = false;
             return self.scanline;
@@ -261,7 +263,7 @@ pub const Ppu = struct {
                     const b: u8 = @intCast(byte);
                     const x = real_x + b;
 
-                    if (x > 0 and x < 160) {
+                    if (x > 0 and x < SCANLINE_SIZE) {
                         const cur_color = self.scanline[@intCast(x)];
                         const zero_color = Self.ColorArray[self.bg_palette.get(0).?];
 
@@ -301,7 +303,7 @@ pub const Ppu = struct {
             for (self.tile_to_raw_colors(tile_num, self.y % 8, false, self.bg_palette, false), 0..) |color, byte| {
                 const pixel = (i * 8 + byte -% self.scx % 8);
 
-                if (pixel < 160) {
+                if (pixel < SCANLINE_SIZE) {
                     self.scanline[pixel] = color.?;
                 }
             }
@@ -339,7 +341,7 @@ pub const Ppu = struct {
             for (self.tile_to_raw_colors(tile_num, y % 8, false, self.bg_palette, false), 0..) |color, byte| {
                 const pixel = i * 8 + byte + x;
 
-                if (pixel < 160) {
+                if (pixel < SCANLINE_SIZE) {
                     self.scanline[pixel] = color.?;
                 }
             }

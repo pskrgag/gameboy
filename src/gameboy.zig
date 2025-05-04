@@ -9,11 +9,6 @@ const Key = @import("devices/joystick.zig").Key;
 const WINDOW_HEIGTH = 144;
 const WINDOW_WIDTH = 160;
 
-const TILE_SCALE = 12;
-
-const DEBUG_WINDOW_HEIGTH = WINDOW_HEIGTH * TILE_SCALE;
-const DEBUG_WINDOW_WIDTH = WINDOW_WIDTH * TILE_SCALE;
-
 pub const Gameboy = struct {
     cpu: Cpu,
     window: SDL.Window,
@@ -34,12 +29,15 @@ pub const Gameboy = struct {
         };
 
         const window = SDL.createWindow(
-            "SDL2 Wrapper Demo",
+            "Gameboy",
             .{ .centered = {} },
             .{ .centered = {} },
-            DEBUG_WINDOW_WIDTH,
-            DEBUG_WINDOW_HEIGTH,
-            .{ .vis = .shown },
+            0,
+            0,
+            .{
+                .vis = .shown,
+                .resizable = true,
+            },
         ) catch |err| {
             std.debug.print("Error {}\n", .{err});
             @panic("SDL create window error");
@@ -100,6 +98,13 @@ pub const Gameboy = struct {
             }
         }
 
+        const size = self.window.getSize();
+        const height = size.height;
+        const width = size.width;
+
+        const x_scale = @as(f32, @floatFromInt(width)) / WINDOW_WIDTH;
+        const y_scale = @as(f32, @floatFromInt(height)) / WINDOW_HEIGTH;
+
         self.cpu.tick();
 
         const scanline = self.cpu.memory.ppu.pop_scanline();
@@ -107,13 +112,15 @@ pub const Gameboy = struct {
         if (scanline != null) {
             for (scanline.?, 0..) |color, x| {
                 const y = self.cpu.memory.ppu.y;
+                const x_f = @as(f32, @floatFromInt(x));
+                const y_f = @as(f32, @floatFromInt(y));
 
                 const rect =
                     SDL.Rectangle{
-                        .x = @intCast(@as(u16, @truncate(x)) * TILE_SCALE),
-                        .y = @intCast(@as(u16, y) * TILE_SCALE),
-                        .width = TILE_SCALE,
-                        .height = TILE_SCALE,
+                        .x = @intFromFloat(@floor(x_f * x_scale)),
+                        .y = @intFromFloat(@floor(y_f * y_scale)),
+                        .width = @intFromFloat(@ceil(x_scale)),
+                        .height = @intFromFloat(@ceil(y_scale)),
                     };
 
                 try self.renderer.setColor(color);
